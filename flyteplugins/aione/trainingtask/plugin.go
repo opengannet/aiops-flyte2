@@ -9,6 +9,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/flyteorg/flyte/v2/flyteplugins/aione/k8slogs"
@@ -124,7 +125,10 @@ func (p *Plugin) Abort(ctx context.Context, tCtx pluginsCore.TaskExecutionContex
 			return err
 		}
 	}
-	return ignoreNotFound(p.kubeClient.Delete(ctx, resources.Job))
+	if err := p.deleteTrainingJob(ctx, resources.Job); err != nil {
+		return err
+	}
+	return p.deleteTrainingPods(ctx, resources.Job.Namespace, resources.Job.Spec.Template.Labels)
 }
 
 func (p *Plugin) Finalize(context.Context, pluginsCore.TaskExecutionContext) error {
@@ -140,6 +144,37 @@ func (p *Plugin) trainingPods(ctx context.Context, job *batchv1.Job) (*corev1.Po
 		return nil, err
 	}
 	return pods, nil
+}
+
+func (p *Plugin) deleteTrainingJob(ctx context.Context, job *batchv1.Job) error {
+	return ignoreNotFound(p.kubeClient.Delete(ctx, job, client.PropagationPolicy(metav1.DeletePropagationBackground)))
+}
+
+func (p *Plugin) deleteTrainingPods(ctx context.Context, namespace string, labels map[string]string) error {
+	if err := validateTrainingPodDeleteLabels(labels); err != nil {
+		return err
+	}
+	pods := &corev1.PodList{}
+	if err := p.kubeClient.List(ctx, pods, client.InNamespace(namespace), client.MatchingLabels(labels)); err != nil {
+		return err
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if err := ignoreNotFound(p.kubeClient.Delete(ctx, pod)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateTrainingPodDeleteLabels(labels map[string]string) error {
+	requiredLabels := []string{labelRunName, labelProject, labelDomain, labelActionName, labelTrainingTaskName}
+	for _, key := range requiredLabels {
+		if strings.TrimSpace(labels[key]) == "" {
+			return fmt.Errorf("refusing to delete training pods with incomplete selector: missing %s", key)
+		}
+	}
+	return nil
 }
 
 func imagePullFailureFromPods(pods []corev1.Pod) string {

@@ -1621,13 +1621,97 @@ func TestGetActionLogContext(t *testing.T) {
 
 	t.Run("event without log context returns NotFound", func(t *testing.T) {
 		actionRepo, _, svc := newTestService(t)
+		event := &workflow.ActionEvent{
+			Id:      actionID,
+			Attempt: 1,
+			Cluster: "c1",
+		}
+		eventModel, err := models.NewActionEventModel(event)
+		require.NoError(t, err)
 		actionRepo.On("GetLatestEventByAttempt", mock.Anything, matchActionID(actionID), uint32(1)).Return(&models.ActionEvent{
-			Info: mustMarshalEvent(&workflow.ActionEvent{
-				Id:      actionID,
-				Attempt: 1,
-				Cluster: "c1",
-			}),
+			Info: mustMarshalEvent(event),
 		}, nil)
+		actionRepo.On("ListEvents", mock.Anything, matchActionID(actionID), 500).Return([]*models.ActionEvent{eventModel}, nil)
+
+		resp, err := svc.GetActionLogContext(context.Background(), connect.NewRequest(&workflow.GetActionLogContextRequest{
+			ActionId: actionID,
+			Attempt:  1,
+		}))
+
+		assert.Nil(t, resp)
+		assert.Error(t, err)
+		assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	})
+
+	t.Run("falls back to prior same-attempt event with log context", func(t *testing.T) {
+		actionRepo, _, svc := newTestService(t)
+		runningEvent := &workflow.ActionEvent{
+			Id:           actionID,
+			Attempt:      1,
+			Phase:        common.ActionPhase_ACTION_PHASE_RUNNING,
+			Version:      1,
+			LogContext:   logContext,
+			Cluster:      "c1",
+			ReportedTime: timestamppb.New(time.Unix(10, 0)),
+			UpdatedTime:  timestamppb.New(time.Unix(10, 0)),
+		}
+		abortedEvent := &workflow.ActionEvent{
+			Id:           actionID,
+			Attempt:      1,
+			Phase:        common.ActionPhase_ACTION_PHASE_ABORTED,
+			Version:      2,
+			Cluster:      "c1",
+			ReportedTime: timestamppb.New(time.Unix(20, 0)),
+			UpdatedTime:  timestamppb.New(time.Unix(20, 0)),
+		}
+		runningModel, err := models.NewActionEventModel(runningEvent)
+		require.NoError(t, err)
+		abortedModel, err := models.NewActionEventModel(abortedEvent)
+		require.NoError(t, err)
+		actionRepo.On("GetLatestEventByAttempt", mock.Anything, matchActionID(actionID), uint32(1)).Return(&models.ActionEvent{
+			Info: mustMarshalEvent(abortedEvent),
+		}, nil)
+		actionRepo.On("ListEvents", mock.Anything, matchActionID(actionID), 500).Return([]*models.ActionEvent{runningModel, abortedModel}, nil)
+
+		resp, err := svc.GetActionLogContext(context.Background(), connect.NewRequest(&workflow.GetActionLogContextRequest{
+			ActionId: actionID,
+			Attempt:  1,
+		}))
+
+		require.NoError(t, err)
+		assert.Equal(t, "c1", resp.Msg.GetCluster())
+		assert.Equal(t, "my-pod", resp.Msg.GetLogContext().GetPrimaryPodName())
+	})
+
+	t.Run("does not fall back to a different attempt", func(t *testing.T) {
+		actionRepo, _, svc := newTestService(t)
+		attemptZeroEvent := &workflow.ActionEvent{
+			Id:           actionID,
+			Attempt:      0,
+			Phase:        common.ActionPhase_ACTION_PHASE_RUNNING,
+			Version:      1,
+			LogContext:   logContext,
+			Cluster:      "c0",
+			ReportedTime: timestamppb.New(time.Unix(10, 0)),
+			UpdatedTime:  timestamppb.New(time.Unix(10, 0)),
+		}
+		attemptOneEvent := &workflow.ActionEvent{
+			Id:           actionID,
+			Attempt:      1,
+			Phase:        common.ActionPhase_ACTION_PHASE_ABORTED,
+			Version:      1,
+			Cluster:      "c1",
+			ReportedTime: timestamppb.New(time.Unix(20, 0)),
+			UpdatedTime:  timestamppb.New(time.Unix(20, 0)),
+		}
+		attemptZeroModel, err := models.NewActionEventModel(attemptZeroEvent)
+		require.NoError(t, err)
+		attemptOneModel, err := models.NewActionEventModel(attemptOneEvent)
+		require.NoError(t, err)
+		actionRepo.On("GetLatestEventByAttempt", mock.Anything, matchActionID(actionID), uint32(1)).Return(&models.ActionEvent{
+			Info: mustMarshalEvent(attemptOneEvent),
+		}, nil)
+		actionRepo.On("ListEvents", mock.Anything, matchActionID(actionID), 500).Return([]*models.ActionEvent{attemptZeroModel, attemptOneModel}, nil)
 
 		resp, err := svc.GetActionLogContext(context.Background(), connect.NewRequest(&workflow.GetActionLogContextRequest{
 			ActionId: actionID,

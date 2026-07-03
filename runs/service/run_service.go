@@ -1494,8 +1494,7 @@ func (s *RunService) actionModelToDetails(action *models.Action, actionID *commo
 	}
 }
 
-// getLogContextAndClusterForAttempt fetches the latest event for the given attempt and returns
-// its LogContext along with the cluster name.
+// getLogContextAndClusterForAttempt fetches the latest log context for the given attempt.
 func getLogContextAndClusterForAttempt(ctx context.Context, repo interfaces.Repository, actionID *common.ActionIdentifier, attempt uint32) (*core.LogContext, string, error) {
 	m, err := repo.ActionRepo().GetLatestEventByAttempt(ctx, actionID, attempt)
 	if err != nil {
@@ -1511,10 +1510,49 @@ func getLogContextAndClusterForAttempt(ctx context.Context, repo interfaces.Repo
 	}
 
 	if event.GetLogContext() == nil {
-		return nil, "", connect.NewError(connect.CodeNotFound, fmt.Errorf("no log context found for action %v attempt %d", actionID, attempt))
+		return getHistoricalLogContextAndClusterForAttempt(ctx, repo, actionID, attempt)
 	}
 
 	return event.GetLogContext(), event.GetCluster(), nil
+}
+
+func getHistoricalLogContextAndClusterForAttempt(ctx context.Context, repo interfaces.Repository, actionID *common.ActionIdentifier, attempt uint32) (*core.LogContext, string, error) {
+	models, err := repo.ActionRepo().ListEvents(ctx, actionID, 500)
+	if err != nil {
+		return nil, "", connect.NewError(connect.CodeInternal, fmt.Errorf("failed to list events for action %v attempt %d: %w", actionID, attempt, err))
+	}
+	events := make([]*workflow.ActionEvent, 0, len(models))
+	for _, m := range models {
+		if m.Attempt != attempt {
+			continue
+		}
+		event, err := m.ToActionEvent()
+		if err != nil {
+			return nil, "", connect.NewError(connect.CodeInternal, fmt.Errorf("failed to deserialize event: %w", err))
+		}
+		if event.GetAttempt() == attempt {
+			events = append(events, event)
+		}
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		return actionEventSortTime(events[i]).Before(actionEventSortTime(events[j]))
+	})
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].GetLogContext() != nil {
+			return events[i].GetLogContext(), events[i].GetCluster(), nil
+		}
+	}
+	return nil, "", connect.NewError(connect.CodeNotFound, fmt.Errorf("no log context found for action %v attempt %d", actionID, attempt))
+}
+
+func actionEventSortTime(event *workflow.ActionEvent) time.Time {
+	if event.GetReportedTime() != nil {
+		return event.GetReportedTime().AsTime()
+	}
+	if event.GetUpdatedTime() != nil {
+		return event.GetUpdatedTime().AsTime()
+	}
+	return time.Time{}
 }
 
 func setActionDetailsSpecFromActionSpec(details *workflow.ActionDetails, actionSpecBytes []byte) {

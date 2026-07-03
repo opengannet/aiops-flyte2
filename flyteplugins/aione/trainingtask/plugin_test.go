@@ -187,9 +187,9 @@ func TestPluginHandleFailsWhenPodImagePullBackOff(t *testing.T) {
 	assert.Contains(t, transition.Info().Err().GetMessage(), "镜像拉取失败")
 }
 
-func TestPluginAbortDeletesTrainingJob(t *testing.T) {
+func TestPluginAbortUsesBackgroundPropagation(t *testing.T) {
 	ctx := context.Background()
-	k8sClient := newFakeClient(t)
+	k8sClient := &recordingDeleteClient{Client: newFakeClient(t)}
 	plugin := NewPlugin(k8sClient)
 	tCtx := trainingTaskContext(t, validTrainingTemplate(t), "run-abc")
 
@@ -198,8 +198,78 @@ func TestPluginAbortDeletesTrainingJob(t *testing.T) {
 
 	require.NoError(t, plugin.Abort(ctx, tCtx))
 
+	require.Len(t, k8sClient.jobDeletePropagationPolicies, 1)
+	assert.Equal(t, metav1.DeletePropagationBackground, k8sClient.jobDeletePropagationPolicies[0])
+}
+
+func TestPluginAbortDeletesTrainingJobAndPods(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := newFakeClient(t)
+	plugin := NewPlugin(k8sClient)
+	tCtx := trainingTaskContext(t, validTrainingTemplate(t), "run-abc")
+
+	_, err := plugin.Handle(ctx, tCtx)
+	require.NoError(t, err)
+
 	var job batchv1.Job
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Namespace: "flyte", Name: "run-abc"}, &job))
+	createTrainingPod(t, ctx, k8sClient, "run-abc-pod", job.Spec.Template.Labels, corev1.PodRunning, corev1.ContainerState{
+		Running: &corev1.ContainerStateRunning{},
+	})
+	otherLabels := cloneStringMap(job.Spec.Template.Labels)
+	otherLabels[labelRunName] = "other-run"
+	createTrainingPod(t, ctx, k8sClient, "other-run-pod", otherLabels, corev1.PodRunning, corev1.ContainerState{
+		Running: &corev1.ContainerStateRunning{},
+	})
+
+	require.NoError(t, plugin.Abort(ctx, tCtx))
+
 	assert.Error(t, k8sClient.Get(ctx, types.NamespacedName{Namespace: "flyte", Name: "run-abc"}, &job))
+
+	var pod corev1.Pod
+	assert.Error(t, k8sClient.Get(ctx, types.NamespacedName{Namespace: "flyte", Name: "run-abc-pod"}, &pod))
+	assert.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Namespace: "flyte", Name: "other-run-pod"}, &pod))
+}
+
+func TestPluginAbortDeletesOrphanedTrainingPodsWhenJobIsGone(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := newFakeClient(t)
+	plugin := NewPlugin(k8sClient)
+	tCtx := trainingTaskContext(t, validTrainingTemplate(t), "run-abc")
+
+	_, err := plugin.Handle(ctx, tCtx)
+	require.NoError(t, err)
+
+	var job batchv1.Job
+	require.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Namespace: "flyte", Name: "run-abc"}, &job))
+	createTrainingPod(t, ctx, k8sClient, "run-abc-pod", job.Spec.Template.Labels, corev1.PodRunning, corev1.ContainerState{
+		Running: &corev1.ContainerStateRunning{},
+	})
+	require.NoError(t, k8sClient.Delete(ctx, &job))
+
+	require.NoError(t, plugin.Abort(ctx, tCtx))
+
+	var pod corev1.Pod
+	assert.Error(t, k8sClient.Get(ctx, types.NamespacedName{Namespace: "flyte", Name: "run-abc-pod"}, &pod))
+}
+
+func TestDeleteTrainingPodsRequiresSpecificTrainingLabels(t *testing.T) {
+	ctx := context.Background()
+	k8sClient := newFakeClient(t)
+	plugin := NewPlugin(k8sClient)
+	labels := map[string]string{
+		labelRunName: "run-abc",
+		labelProject: "flytesnacks",
+	}
+	createTrainingPod(t, ctx, k8sClient, "run-abc-pod", labels, corev1.PodRunning, corev1.ContainerState{
+		Running: &corev1.ContainerStateRunning{},
+	})
+
+	err := plugin.deleteTrainingPods(ctx, "flyte", labels)
+
+	require.Error(t, err)
+	var pod corev1.Pod
+	assert.NoError(t, k8sClient.Get(ctx, types.NamespacedName{Namespace: "flyte", Name: "run-abc-pod"}, &pod))
 }
 
 func validTrainingTemplate(t *testing.T) *core.TaskTemplate {
@@ -249,6 +319,21 @@ func newFakeClient(t *testing.T) client.Client {
 	return fake.NewClientBuilder().WithScheme(scheme).Build()
 }
 
+type recordingDeleteClient struct {
+	client.Client
+	jobDeletePropagationPolicies []metav1.DeletionPropagation
+}
+
+func (c *recordingDeleteClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	if _, ok := obj.(*batchv1.Job); ok {
+		options := (&client.DeleteOptions{}).ApplyOptions(opts)
+		if options.PropagationPolicy != nil {
+			c.jobDeletePropagationPolicies = append(c.jobDeletePropagationPolicies, *options.PropagationPolicy)
+		}
+	}
+	return c.Client.Delete(ctx, obj, opts...)
+}
+
 func createTrainingPod(
 	t *testing.T,
 	ctx context.Context,
@@ -277,6 +362,14 @@ func createTrainingPod(
 		},
 	}
 	require.NoError(t, k8sClient.Create(ctx, pod))
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
 }
 
 func assertTrainingLogContext(t *testing.T, info *pluginsCore.TaskInfo, podName string) {
