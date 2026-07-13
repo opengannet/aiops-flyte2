@@ -119,6 +119,8 @@ spec:
         app: flyte-console-extracted
     spec:
       serviceAccountName: flyte-console-extracted
+      nodeSelector:
+        kubernetes.io/hostname: aione-flyte2
       containers:
         - name: flyte-console-extracted
           image: flyte-console-extracted:latest
