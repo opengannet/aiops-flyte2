@@ -768,7 +768,7 @@ Expected: PASS and build exits `0`.
 
 - [ ] **Step 1: Write failing shell tests**
 
-Extend `deploy/tests/test_flyte_api_scripts.sh` to assert the new script exists, defaults `ENDPOINT` to `http://172.19.65.230:30080`, and emits payload fields with `training_task`.
+Extend `deploy/tests/test_flyte_api_scripts.sh` to assert the new script exists, defaults `ENDPOINT` to `http://172.19.66.218:30080`, and emits payload fields with `training_task`.
 
 - [ ] **Step 2: Run shell tests to verify RED**
 
@@ -877,7 +877,7 @@ Run:
 
 ```powershell
 cd D:\flyte-work
-npx --yes --package @playwright/cli playwright-cli -s=training-task-verify open http://172.19.65.230:30081/v2/projects
+npx --yes --package @playwright/cli playwright-cli -s=training-task-verify open http://172.19.66.218:30081/v2/projects
 npx --yes --package @playwright/cli playwright-cli -s=training-task-verify snapshot
 npx --yes --package @playwright/cli playwright-cli -s=training-task-verify console error
 npx --yes --package @playwright/cli playwright-cli -s=training-task-verify screenshot --filename D:\flyte-work\output\playwright\training-task-projects.png --full-page

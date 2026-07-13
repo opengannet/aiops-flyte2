@@ -1,4 +1,4 @@
-﻿{
+{
   "ok": true,
   "run": {
     "org": "aione",
@@ -16,15 +16,15 @@
     "status": "CREATED",
     "ssh": {
       "user": "dev",
-      "host": "172.19.65.230",
+      "host": "172.19.66.218",
       "port": 31000,
-      "command": "ssh -p 31000 dev@172.19.65.230"
+      "command": "ssh -p 31000 dev@172.19.66.218"
     },
     "codeServer": {
-      "host": "172.19.65.230",
+      "host": "172.19.66.218",
       "port": 31001,
-      "url": "http://172.19.65.230:31001",
-      "workspaceUrl": "http://172.19.65.230:31001/?folder=/workspace"
+      "url": "http://172.19.66.218:31001",
+      "workspaceUrl": "http://172.19.66.218:31001/?folder=/workspace"
     },
     "resources": {
       "cpu": "2",

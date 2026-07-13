@@ -335,7 +335,7 @@ After tests pass, push `main`, then on `aione-flyte2` use only `git pull --ff-on
 
 Verify:
 
-- `http://172.19.65.230:30081/v2/domain/development/project/<project>/datasets` loads.
+- `http://172.19.66.218:30081/v2/domain/development/project/<project>/datasets` loads.
 - Dataset create succeeds with an existing cloud storage.
 - List shows the dataset.
 - Edit updates description/path/public flag.

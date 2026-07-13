@@ -381,7 +381,7 @@ describe("development instance helpers", () => {
 
     const instance = formatDevelopmentInstance(run, actionDetails);
 
-    expect(instance?.sshCommand).toBe("ssh -p 31000 flytekit@172.19.65.230");
+    expect(instance?.sshCommand).toBe("ssh -p 31000 flytekit@172.19.66.218");
   });
 
   it("generates the next restart run suffix for the same source instance", () => {

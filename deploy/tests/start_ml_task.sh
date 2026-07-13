@@ -6,7 +6,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=tests/lib/flyte_api.sh
 source "$ROOT_DIR/tests/lib/flyte_api.sh"
 
-ENDPOINT="${ENDPOINT:-http://172.19.65.230:30080}"
+ENDPOINT="${ENDPOINT:-http://172.19.66.218:30080}"
 ORG="${ORG:-testorg}"
 PROJECT="${PROJECT:-flytesnacks}"
 DOMAIN="${DOMAIN:-development}"

@@ -4,7 +4,7 @@ set -euo pipefail
 REMOTE_HOST="${REMOTE_HOST:-aione-flyte2}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/aiops-flyte2}"
 NAMESPACE="${NAMESPACE:-flyte}"
-CONSOLE_URL="${CONSOLE_URL:-http://172.19.65.230:30081/v2/projects}"
+CONSOLE_URL="${CONSOLE_URL:-http://172.19.66.218:30081/v2/projects}"
 NERDCTL_VERSION="${NERDCTL_VERSION:-2.3.3}"
 PROXY_URL="${PROXY_URL:-}"
 DRY_RUN="${DRY_RUN:-0}"

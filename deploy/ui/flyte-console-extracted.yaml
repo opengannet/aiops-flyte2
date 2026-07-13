@@ -143,7 +143,7 @@ spec:
             - name: EXTERNAL_API_PUBLIC_SCHEME
               value: http
             - name: EXTERNAL_API_PUBLIC_HOST
-              value: 172.19.65.230
+              value: 172.19.66.218
             - name: EXTERNAL_API_KEYS
               valueFrom:
                 secretKeyRef:

@@ -66,7 +66,7 @@ If the generated port conflicts at Kubernetes create time, the create request su
 The SSH command is derived from task custom data:
 
 ```text
-ssh -p <nodePort> <sshUser>@172.19.65.230
+ssh -p <nodePort> <sshUser>@172.19.66.218
 ```
 
 The host defaults to the current deployment node host from project instructions. The UI exposes copy actions for the SSH command.

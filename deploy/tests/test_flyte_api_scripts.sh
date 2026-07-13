@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEFAULT_ENDPOINT="http://172.19.65.230:30080"
+DEFAULT_ENDPOINT="http://172.19.66.218:30080"
 
 # shellcheck source=tests/lib/flyte_api.sh
 source "$ROOT_DIR/tests/lib/flyte_api.sh"

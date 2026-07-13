@@ -130,7 +130,7 @@ function sshCommand(instance: DevelopmentInstance) {
   if (!port) {
     return "-";
   }
-  return `ssh -p ${port} ${instance.access?.sshUser || "flytekit"}@172.19.65.230`;
+  return `ssh -p ${port} ${instance.access?.sshUser || "flytekit"}@172.19.66.218`;
 }
 
 async function loadUsedNodePorts() {

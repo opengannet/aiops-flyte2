@@ -34,7 +34,7 @@ assert_not_contains() {
 
 assert_contains 'aione-flyte2'
 assert_contains "REMOTE_DIR='/opt/aiops-flyte2'"
-assert_contains "CONSOLE_URL='http://172.19.65.230:30081/v2/projects'"
+assert_contains "CONSOLE_URL='http://172.19.66.218:30081/v2/projects'"
 assert_contains 'git pull --ff-only origin main'
 assert_contains 'ensure_buildkit_k3s'
 assert_contains 'wait_for_buildkit'

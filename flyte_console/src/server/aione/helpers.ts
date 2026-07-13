@@ -14,7 +14,7 @@ export const DEFAULT_AIONE_INTERNAL_ORG = "aione";
 export const DEFAULT_AIONE_STORAGE_CLASS = "bj1-ebs";
 export const AIONE_RUNTIME_NAMESPACE = "flyte";
 export const DEFAULT_EXTERNAL_API_PUBLIC_SCHEME = "http";
-export const DEFAULT_EXTERNAL_API_PUBLIC_HOST = "172.19.65.230";
+export const DEFAULT_EXTERNAL_API_PUBLIC_HOST = "172.19.66.218";
 
 type ExternalImageType = "BASE" | "OWN";
 

@@ -188,7 +188,7 @@ Run backend deployment/update from `D:\flyte-work` per `AGENTS.md`, including ch
 
 - [ ] **Step 4: Deploy frontend**
 
-Build the remote source console image, import it into k3s, apply `deploy/ui/flyte-console-extracted.yaml`, restart `flyte-console-extracted`, and verify `curl -I http://172.19.65.230:30081/v2/projects` returns HTTP 200.
+Build the remote source console image, import it into k3s, apply `deploy/ui/flyte-console-extracted.yaml`, restart `flyte-console-extracted`, and verify `curl -I http://172.19.66.218:30081/v2/projects` returns HTTP 200.
 
 - [ ] **Step 5: Playwright verification**
 

@@ -1313,7 +1313,7 @@ docker build -f Dockerfile -t flyte-binary-v2:ssh-workspace .
 docker save flyte-binary-v2:ssh-workspace | k3s ctr images import -
 kubectl -n flyte rollout restart deploy/flyte-binary
 kubectl -n flyte rollout status deploy/flyte-binary --timeout=10m
-curl -I http://172.19.65.230:30080/v2/projects
+curl -I http://172.19.66.218:30080/v2/projects
 ```
 
 Expected: rollout completes and curl returns `HTTP/1.1 200 OK`.
@@ -1332,7 +1332,7 @@ docker save "flyte-console-source:${COMMIT}" flyte-console-extracted:latest | k3
 kubectl apply -f deploy/ui/flyte-console-extracted.yaml
 kubectl -n flyte rollout restart deploy/flyte-console-extracted
 kubectl -n flyte rollout status deploy/flyte-console-extracted --timeout=180s
-curl -I http://172.19.65.230:30081/v2/projects
+curl -I http://172.19.66.218:30081/v2/projects
 ```
 
 Expected: rollout completes and curl returns `HTTP/1.1 200 OK`.
@@ -1343,7 +1343,7 @@ Run:
 
 ```powershell
 cd D:\flyte-work
-npx --yes --package @playwright/cli playwright-cli -s=code-repository-verify open http://172.19.65.230:30081/v2/projects
+npx --yes --package @playwright/cli playwright-cli -s=code-repository-verify open http://172.19.66.218:30081/v2/projects
 npx --yes --package @playwright/cli playwright-cli -s=code-repository-verify snapshot
 npx --yes --package @playwright/cli playwright-cli -s=code-repository-verify console error
 npx --yes --package @playwright/cli playwright-cli -s=code-repository-verify requests

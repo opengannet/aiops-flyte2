@@ -573,7 +573,7 @@ export function formatDevelopmentInstance(
     runName: runId.name,
     sourceInstanceId,
     sshCommand: nodePort
-      ? `ssh -p ${nodePort} ${sshUser}@172.19.65.230`
+      ? `ssh -p ${nodePort} ${sshUser}@172.19.66.218`
       : undefined,
     nodePort,
     codeServerUrl:

@@ -445,7 +445,7 @@ describe("aione external instance helpers", () => {
         cpu: "2",
         memory: "4Gi",
         gpuCount: 0,
-        publicHost: "172.19.65.230",
+        publicHost: "172.19.66.218",
         codeServerHost: "ins-5ud29xk04tmc6e4ufe8083dvn0-code.ops.fzyun.io",
       }),
     ).toEqual({
@@ -454,9 +454,9 @@ describe("aione external instance helpers", () => {
       status: "CREATED",
       ssh: {
         user: "dev",
-        host: "172.19.65.230",
+        host: "172.19.66.218",
         port: 31004,
-        command: "ssh -p 31004 dev@172.19.65.230",
+        command: "ssh -p 31004 dev@172.19.66.218",
       },
       codeServer: {
         host: "ins-5ud29xk04tmc6e4ufe8083dvn0-code.ops.fzyun.io",
@@ -528,7 +528,7 @@ describe("aione external instance helpers", () => {
       cpu: "2",
       memory: "4Gi",
       gpuCount: 0,
-      publicHost: "172.19.65.230",
+      publicHost: "172.19.66.218",
       codeServerHost: "ins-2024ad6h4e4x036u9u5j31ec89-code.ops.fzyun.io",
     });
 

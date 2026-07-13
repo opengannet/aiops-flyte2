@@ -77,20 +77,20 @@ flyte-binary-v2:ssh-workspace
 部署完成后脚本会输出 k3s Ingress 的访问地址，例如：
 
 ```bash
-Web UI: http://172.19.65.230:30080/v2
-API endpoint: http://172.19.65.230:30080
+Web UI: http://172.19.66.218:30080/v2
+API endpoint: http://172.19.66.218:30080
 ```
 
 然后访问 Web UI：
 
 ```text
-http://172.19.65.230:30080/v2
+http://172.19.66.218:30080/v2
 ```
 
 本地 API endpoint 使用同一个 Ingress：
 
 ```text
-http://172.19.65.230:30080
+http://172.19.66.218:30080
 ```
 
 ## 启动 SSH 工作空间
@@ -98,7 +98,7 @@ http://172.19.65.230:30080
 脚本依赖 `buf`、`python3` 和可访问 Flyte API 的 `ENDPOINT`。
 
 ```bash
-ENDPOINT=http://172.19.65.230:30080 \
+ENDPOINT=http://172.19.66.218:30080 \
 ORG=testorg \
 PROJECT=flytesnacks \
 DOMAIN=development \
@@ -134,7 +134,7 @@ ssh dev@10.0.0.11 -p 30222
 ## 启动持续运行的机器学习任务
 
 ```bash
-ENDPOINT=http://172.19.65.230:30080 \
+ENDPOINT=http://172.19.66.218:30080 \
 ORG=testorg \
 PROJECT=flytesnacks \
 DOMAIN=development \
@@ -162,7 +162,7 @@ COMMAND='echo ml task started; sleep 3600'
 ## 查询工作流状态
 
 ```bash
-ENDPOINT=http://172.19.65.230:30080 bash deploy/tests/get_run_status.sh /flytesnacks/development/abc123
+ENDPOINT=http://172.19.66.218:30080 bash deploy/tests/get_run_status.sh /flytesnacks/development/abc123
 ```
 
 返回格式：

@@ -262,7 +262,7 @@ pnpm.cmd exec vitest run "src/components/pages/Datasets/*.test.ts*"
 pnpm.cmd exec tsc --project tsconfig.typecheck.json --noEmit
 ```
 
-Full deployment verification, after implementation is committed and pushed, follows root `AGENTS.md`: remote `git pull --ff-only`, backend rollout when backend changed, source-built console rollout, and browser verification on `http://172.19.65.230:30081/v2/domain/development/project/<project>/datasets`.
+Full deployment verification, after implementation is committed and pushed, follows root `AGENTS.md`: remote `git pull --ff-only`, backend rollout when backend changed, source-built console rollout, and browser verification on `http://172.19.66.218:30081/v2/domain/development/project/<project>/datasets`.
 
 ## Out Of Scope
 
