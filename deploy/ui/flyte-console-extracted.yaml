@@ -135,7 +135,7 @@ spec:
             - name: NEXT_PORT
               value: "3000"
             - name: FLYTE_API_ORIGIN
-              value: http://flyte-binary-http.flyte.svc.cluster.local:8090
+              value: http://flyte-binary-http:8090
             - name: UNION_ORG_OVERRIDE
               value: aione
             - name: EXTERNAL_API_FLYTE_ORG
@@ -178,3 +178,54 @@ spec:
       port: 80
       targetPort: http
       nodePort: 30081
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flyte-console-flyte2
+  namespace: flyte
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: flyte2.ops.fzyun.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: flyte-console-extracted
+                port:
+                  number: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: flyte-console-root-redirect
+  namespace: flyte
+spec:
+  redirectRegex:
+    regex: '^(https?://[^/]+)/$'
+    replacement: '${1}/v2/projects'
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flyte-console-flyte2-root
+  namespace: flyte
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: flyte-flyte-console-root-redirect@kubernetescrd
+    traefik.ingress.kubernetes.io/router.priority: "100"
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: flyte2.ops.fzyun.io
+      http:
+        paths:
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: flyte-console-extracted
+                port:
+                  number: 80
