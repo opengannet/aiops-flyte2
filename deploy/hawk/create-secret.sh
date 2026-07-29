@@ -1,2 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+: "${HAWK_API_KEY:?set HAWK_API_KEY before creating the Hawk secret}"
+
 kubectl -n flyte create secret generic flyte-console-hawk \
-  --from-literal=api-key='cpAC39mSDPe7fUaq4aH8g5vly98CyPtv'
+  --from-literal=api-key="${HAWK_API_KEY}" \
+  --dry-run=client \
+  -o yaml |
+  kubectl apply -f -
