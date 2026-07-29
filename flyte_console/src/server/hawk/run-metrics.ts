@@ -46,7 +46,7 @@ const METRIC_DEFINITIONS = {
   },
 } as const;
 
-type MetricKey = keyof typeof METRIC_DEFINITIONS;
+export type MetricKey = keyof typeof METRIC_DEFINITIONS;
 
 export type HawkRunMetricsParams = {
   org: string;
@@ -72,6 +72,11 @@ export type HawkRunMetricSeries = {
   emptyReason?: string;
 };
 
+export type HawkRawMetricSeries = {
+  metric: Record<string, string>;
+  points: HawkRunMetricPoint[];
+};
+
 export type HawkRunMetricsTarget = {
   namespace: string;
   podName: string;
@@ -89,7 +94,15 @@ export type HawkRunMetricsResult = {
   metrics: Record<MetricKey, HawkRunMetricSeries>;
 };
 
-type HawkRunMetricsDependencies = {
+export type HawkRunMetricSeriesResult = {
+  start: number;
+  end: number;
+  step: number;
+  targets: HawkRunMetricsTarget[];
+  metrics: Partial<Record<MetricKey, HawkRawMetricSeries[]>>;
+};
+
+export type HawkRunMetricsDependencies = {
   getActionDetails?: (
     params: HawkRunMetricsParams,
   ) => Promise<ActionDetails | undefined>;
@@ -122,19 +135,7 @@ export async function getHawkRunMetrics(
   dependencies: HawkRunMetricsDependencies = {},
 ): Promise<HawkRunMetricsResult> {
   const deps = withDefaultDependencies(dependencies);
-  const actionDetails = await deps.getActionDetails(params);
-  let targets = await resolveTargetsFromActionDetails(params, actionDetails);
-
-  if (targets.length > 0) {
-    targets = await enrichTargetsWithPodRequests(targets, deps.getPod);
-  } else {
-    const labelSelector = buildRunActionLabelSelector(params);
-    const pods = await deps.listPods({
-      namespace: AIONE_RUNTIME_NAMESPACE,
-      labelSelector,
-    });
-    targets = targetsFromPods(pods);
-  }
+  const targets = await resolveRunMetricTargets(params, deps);
 
   const metrics = Object.fromEntries(
     await Promise.all(
@@ -144,6 +145,33 @@ export async function getHawkRunMetrics(
       ]),
     ),
   ) as Record<MetricKey, HawkRunMetricSeries>;
+
+  return {
+    start: params.start,
+    end: params.end,
+    step: params.step,
+    targets,
+    metrics,
+  };
+}
+
+export async function getHawkRunMetricSeries(
+  params: HawkRunMetricsParams,
+  metricKeys: MetricKey[],
+  dependencies: HawkRunMetricsDependencies = {},
+): Promise<HawkRunMetricSeriesResult> {
+  const deps = withDefaultDependencies(dependencies);
+  const targets = await resolveRunMetricTargets(params, deps);
+  const requestedMetricKeys = Array.from(new Set(metricKeys));
+
+  const metrics = Object.fromEntries(
+    await Promise.all(
+      requestedMetricKeys.map(async (key) => [
+        key,
+        await queryMetricSeries(key, targets, params, deps.queryHawkRange),
+      ]),
+    ),
+  ) as Partial<Record<MetricKey, HawkRawMetricSeries[]>>;
 
   return {
     start: params.start,
@@ -182,6 +210,26 @@ async function getActionDetails(params: HawkRunMetricsParams) {
     }),
   });
   return response.details;
+}
+
+async function resolveRunMetricTargets(
+  params: HawkRunMetricsParams,
+  deps: Required<HawkRunMetricsDependencies>,
+) {
+  const actionDetails = await deps.getActionDetails(params);
+  let targets = await resolveTargetsFromActionDetails(params, actionDetails);
+
+  if (targets.length > 0) {
+    return enrichTargetsWithPodRequests(targets, deps.getPod);
+  }
+
+  const labelSelector = buildRunActionLabelSelector(params);
+  const pods = await deps.listPods({
+    namespace: AIONE_RUNTIME_NAMESPACE,
+    labelSelector,
+  });
+  targets = targetsFromPods(pods);
+  return targets;
 }
 
 async function resolveTargetsFromActionDetails(
@@ -354,6 +402,30 @@ async function queryMetric(
   };
 }
 
+async function queryMetricSeries(
+  key: MetricKey,
+  targets: HawkRunMetricsTarget[],
+  params: HawkRunMetricsParams,
+  queryRange: Required<HawkRunMetricsDependencies>["queryHawkRange"],
+): Promise<HawkRawMetricSeries[]> {
+  const definition = METRIC_DEFINITIONS[key];
+  if (targets.length === 0) {
+    return [];
+  }
+
+  const matrices = await Promise.all(
+    targets.map((target) =>
+      queryRange({
+        query: definition.query(escapePrometheusLabelValue(target.containerId)),
+        start: params.start,
+        end: params.end,
+        step: params.step,
+      }),
+    ),
+  );
+  return matrices.flatMap(matrixToRawSeries);
+}
+
 function aggregateMatrices(
   matrices: PrometheusMatrixData[],
   aggregation: "sum" | "avg",
@@ -380,6 +452,34 @@ function aggregateMatrices(
       timestamp,
       value: aggregation === "avg" ? values.sum / values.count : values.sum,
     }));
+}
+
+function matrixToRawSeries(matrix: PrometheusMatrixData) {
+  return (matrix.result ?? []).flatMap((series) => {
+    const points = parseMetricPoints(series.values ?? []);
+    if (points.length === 0) {
+      return [];
+    }
+    return [
+      {
+        metric: { ...(series.metric ?? {}) },
+        points,
+      },
+    ];
+  });
+}
+
+function parseMetricPoints(values: Array<[number | string, string]>) {
+  return values
+    .flatMap(([rawTimestamp, rawValue]) => {
+      const timestamp = Number(rawTimestamp);
+      const value = Number(rawValue);
+      if (!Number.isFinite(timestamp) || !Number.isFinite(value)) {
+        return [];
+      }
+      return [{ timestamp, value }];
+    })
+    .sort((a, b) => a.timestamp - b.timestamp);
 }
 
 async function queryHawkRange({

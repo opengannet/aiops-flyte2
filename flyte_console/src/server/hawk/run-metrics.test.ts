@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildHawkContainerId,
   getHawkRunMetrics,
+  getHawkRunMetricSeries,
 } from "@/server/hawk/run-metrics";
 
 const baseParams = {
@@ -183,6 +184,79 @@ describe("Hawk run metrics", () => {
       { timestamp: 1060, value: 2 },
     ]);
     expect(result.metrics.memoryRss.unit).toBe("bytes");
+  });
+
+  it("returns non-aggregated metric series with Prometheus labels for monitor consumers", async () => {
+    const result = await getHawkRunMetricSeries(
+      baseParams,
+      ["gpuUtilization", "gpuMemoryUsage"],
+      {
+        getActionDetails: async () =>
+          ({
+            attempts: [
+              {
+                attempt: 2,
+                logContext: {
+                  primaryPodName: "run-a-a0-0-0",
+                  pods: [
+                    {
+                      namespace: "flyte",
+                      podName: "run-a-a0-0-0",
+                      primaryContainerName: "ssh",
+                      containers: [{ containerName: "ssh" }],
+                      initContainers: [],
+                    },
+                  ],
+                },
+              },
+            ],
+          }) as any,
+        getPod: async () => ({
+          metadata: { name: "run-a-a0-0-0", namespace: "flyte" },
+          spec: {
+            containers: [
+              {
+                name: "ssh",
+                resources: { requests: { cpu: "2", memory: "4Gi" } },
+              },
+            ],
+          },
+        }),
+        listPods: async () => [],
+        queryHawkRange: async ({ query }) => ({
+          result: [
+            {
+              metric: {
+                container_id: "/k8s/flyte/run-a-a0-0-0/ssh",
+                gpu_uuid: query.includes("memory") ? "GPU-bbbb" : "GPU-aaaa",
+              },
+              values: [[1000, "70.123"]] as Array<[number, string]>,
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(result.targets).toEqual([
+      {
+        namespace: "flyte",
+        podName: "run-a-a0-0-0",
+        containerName: "ssh",
+        containerId: "/k8s/flyte/run-a-a0-0-0/ssh",
+        cpuRequestCores: 2,
+        memoryRequestBytes: 4 * 1024 * 1024 * 1024,
+      },
+    ]);
+    expect(result.metrics.gpuUtilization).toEqual([
+      {
+        metric: {
+          container_id: "/k8s/flyte/run-a-a0-0-0/ssh",
+          gpu_uuid: "GPU-aaaa",
+        },
+        points: [{ timestamp: 1000, value: 70.123 }],
+      },
+    ]);
+    expect(result.metrics.gpuMemoryUsage[0].metric.gpu_uuid).toBe("GPU-bbbb");
   });
 
   it("surfaces Hawk query errors from the whitelisted metric fetch", async () => {

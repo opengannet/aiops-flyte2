@@ -204,6 +204,18 @@ export async function getAioneExternalStatus(
   };
 }
 
+export async function getAioneExternalRunDetails(
+  type: AioneExternalType,
+  sourceId: string,
+) {
+  const runId =
+    type === "task"
+      ? await resolveTaskRunIdentifier(sourceId)
+      : await resolveInstanceRunIdentifier(sourceId);
+  const response = await createFlyteRunClient().getRunDetails({ runId });
+  return { runId, details: response.details };
+}
+
 export async function getAioneExternalLogs(
   type: AioneExternalType,
   sourceId: string,
@@ -2122,7 +2134,7 @@ function isActiveActionPhase(phase?: ActionPhase) {
   );
 }
 
-type FlyteRunIdentifier = {
+export type FlyteRunIdentifier = {
   org: string;
   project: string;
   domain: string;
