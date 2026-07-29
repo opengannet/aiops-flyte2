@@ -97,6 +97,7 @@ import {
   buildWorkspaceLabels,
   getAioneNodePortRange,
 } from "@/server/aione/helpers";
+import { getHawkRunLogs, type HawkRunLogLine } from "@/server/hawk/run-logs";
 
 export type AioneExternalType = "instance" | "task";
 export type AioneClearType = AioneExternalType | "store";
@@ -104,6 +105,7 @@ type DevelopmentInstanceCloudStorageMounts =
   DevelopmentInstanceFormValues["cloudStorageMounts"];
 
 const NODE_PORT_RETRIES = 3;
+const EXTERNAL_HAWK_LOG_LIMIT = 10000;
 const AUTO_REGISTERED_CLOUD_STORAGE_DESCRIPTION =
   "Auto-registered from external API datastore";
 const TASK_DELETABLE_KINDS = [
@@ -226,25 +228,33 @@ export async function getAioneExternalLogs(
       ? await resolveTaskRunIdentifier(sourceId)
       : await resolveInstanceRunIdentifier(sourceId);
   const response = await createFlyteRunClient().getRunDetails({ runId });
-  const logContext = getLatestAttemptLogContext(
-    response.details?.action?.attempts ?? [],
-  );
-  if (!logContext) {
+  const action = response.details?.action;
+  const actionId = action?.id?.name?.trim() ?? "";
+  const attempt = getLatestAttemptWithLogContext(action?.attempts ?? []);
+  if (!actionId || !attempt) {
     return emptyAioneLogPage();
   }
 
-  const pod = getPrimaryPodLogContext(logContext);
-  if (!pod?.podName) {
-    return emptyAioneLogPage();
+  try {
+    const logs = await getHawkRunLogs(
+      {
+        org: runId.org,
+        project: runId.project,
+        domain: runId.domain,
+        runId: runId.name,
+        actionId,
+        attempt: attempt.attempt,
+        limit: EXTERNAL_HAWK_LOG_LIMIT,
+      },
+      { getActionDetails: async () => action },
+    );
+    return paginateLogLines(
+      hawkRunLogLinesToExternalLines(logs.lines),
+      pagination,
+    );
+  } catch {
+    throw statusError("failed to read Hawk logs", 502);
   }
-
-  const containerName = getPrimaryContainerName(pod);
-  if (!containerName) {
-    return emptyAioneLogPage();
-  }
-
-  const lines = await readKubernetesPodLog({ pod, containerName });
-  return paginateLogLines(lines, pagination);
 }
 
 export async function listAioneInstanceRuns(sourceInstanceId: string) {
@@ -848,6 +858,12 @@ async function resolveTaskRunIdentifier(
 function getLatestAttemptLogContext(
   attempts: Array<{ attempt: number; logContext?: LogContext }>,
 ) {
+  return getLatestAttemptWithLogContext(attempts)?.logContext;
+}
+
+function getLatestAttemptWithLogContext(
+  attempts: Array<{ attempt: number; logContext?: LogContext }>,
+) {
   let latest: { attempt: number; logContext: LogContext } | undefined;
   for (const attempt of attempts) {
     if (!attempt.logContext) {
@@ -857,7 +873,7 @@ function getLatestAttemptLogContext(
       latest = { attempt: attempt.attempt, logContext: attempt.logContext };
     }
   }
-  return latest?.logContext;
+  return latest;
 }
 
 function getPrimaryPodLogContext(logContext: LogContext) {
@@ -925,6 +941,10 @@ function splitLogLines(text: string) {
     lines.pop();
   }
   return lines;
+}
+
+function hawkRunLogLinesToExternalLines(lines: HawkRunLogLine[]) {
+  return lines.flatMap((line) => splitLogLines(line.message));
 }
 
 function paginateLogLines(

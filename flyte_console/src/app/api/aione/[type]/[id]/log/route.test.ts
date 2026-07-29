@@ -7,6 +7,7 @@ const getTrainingTaskByIdMock = vi.hoisted(() => vi.fn());
 const getDevelopmentInstanceByIdMock = vi.hoisted(() => vi.fn());
 const getKubernetesClientConfigMock = vi.hoisted(() => vi.fn());
 const requestKubernetesMock = vi.hoisted(() => vi.fn());
+const getHawkRunLogsMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@connectrpc/connect", async () => {
   const actual = await vi.importActual<typeof import("@connectrpc/connect")>(
@@ -24,9 +25,9 @@ vi.mock("@connectrpc/connect", async () => {
           ? {
               getDevelopmentInstanceById: getDevelopmentInstanceByIdMock,
             }
-        : {
-            getRunDetails: getRunDetailsMock,
-          },
+          : {
+              getRunDetails: getRunDetailsMock,
+            },
     ),
   };
 });
@@ -38,6 +39,10 @@ vi.mock("@connectrpc/connect-web", () => ({
 vi.mock("@/server/kubernetes/client", () => ({
   getKubernetesClientConfig: getKubernetesClientConfigMock,
   requestKubernetes: requestKubernetesMock,
+}));
+
+vi.mock("@/server/hawk/run-logs", () => ({
+  getHawkRunLogs: getHawkRunLogsMock,
 }));
 
 const latestLogContext = {
@@ -87,6 +92,9 @@ describe("aione external typed log route", () => {
     getRunDetailsMock.mockResolvedValue({
       details: {
         action: {
+          id: {
+            name: "a0",
+          },
           attempts: [
             {
               attempt: 1,
@@ -117,14 +125,29 @@ describe("aione external typed log route", () => {
       text: "line 1\nline 2\nline 3\nline 4\n",
       json: () => ({}),
     });
+    getHawkRunLogsMock.mockResolvedValue({
+      start: 100,
+      end: 200,
+      limit: 10000,
+      targets: [],
+      lines: [
+        { message: "line 1" },
+        { message: "line 2" },
+        { message: "line 3" },
+        { message: "line 4" },
+      ],
+    });
   });
 
   it("rejects requests without an external API key using the public envelope", async () => {
     const { GET } = await import("./route");
     const response = await GET(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/log", {
-        method: "GET",
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
@@ -133,7 +156,7 @@ describe("aione external typed log route", () => {
     expect(body).toEqual({ status: 401, message: "unauthorized" });
   });
 
-  it("returns paged logs for an instance external id using the latest attempt context", async () => {
+  it("returns paged Hawk logs for an instance external id using the latest attempt context", async () => {
     const { GET } = await import("./route");
     const response = await GET(
       new NextRequest(
@@ -146,8 +169,6 @@ describe("aione external typed log route", () => {
       { params: Promise.resolve({ type: "instance", id: "ins-contract-1" }) },
     );
     const body = await response.json();
-    const kubeRequest = requestKubernetesMock.mock.calls[0][0];
-    const kubeUrl = new URL(kubeRequest.url);
 
     expect(response.status).toBe(200);
     expect(getRunDetailsMock).toHaveBeenCalledWith({
@@ -158,12 +179,19 @@ describe("aione external typed log route", () => {
         name: "ins-contract-1-r1",
       },
     });
-    expect(kubeUrl.pathname).toBe(
-      "/api/v1/namespaces/flyte/pods/task-contract-1-run-a0-0-latest/log",
+    expect(getHawkRunLogsMock).toHaveBeenCalledWith(
+      {
+        org: "aione",
+        project: "aione",
+        domain: "development",
+        runId: "ins-contract-1-r1",
+        actionId: "a0",
+        attempt: 3,
+        limit: 10000,
+      },
+      expect.objectContaining({ getActionDetails: expect.any(Function) }),
     );
-    expect(kubeUrl.searchParams.get("container")).toBe("main");
-    expect(kubeUrl.searchParams.get("timestamps")).toBe("false");
-    expect(kubeRequest.headers).toBeUndefined();
+    expect(requestKubernetesMock).not.toHaveBeenCalled();
     expect(body).toEqual({
       status: 200,
       data: {
@@ -176,10 +204,13 @@ describe("aione external typed log route", () => {
   it("returns default first page logs for a task external id", async () => {
     const { GET } = await import("./route");
     const response = await GET(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/log", {
-        method: "GET",
-        headers: { authorization: "Bearer external-key" },
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
@@ -192,9 +223,10 @@ describe("aione external typed log route", () => {
       total: 4,
       logs: ["line 1", "line 2", "line 3", "line 4"],
     });
+    expect(requestKubernetesMock).not.toHaveBeenCalled();
   });
 
-  it("returns an empty log page when the pod has already been cleaned up", async () => {
+  it("returns Hawk historical logs when the pod has already been cleaned up", async () => {
     requestKubernetesMock.mockResolvedValue({
       ok: false,
       status: 404,
@@ -204,16 +236,55 @@ describe("aione external typed log route", () => {
 
     const { GET } = await import("./route");
     const response = await GET(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/log", {
-        method: "GET",
-        headers: { authorization: "Bearer external-key" },
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({ status: 200, data: { total: 0, logs: [] } });
+    expect(requestKubernetesMock).not.toHaveBeenCalled();
+    expect(body).toEqual({
+      status: 200,
+      data: {
+        total: 4,
+        logs: ["line 1", "line 2", "line 3", "line 4"],
+      },
+    });
+  });
+
+  it("splits multiline Hawk messages into the legacy string log contract", async () => {
+    getHawkRunLogsMock.mockResolvedValue({
+      start: 100,
+      end: 200,
+      limit: 10000,
+      targets: [],
+      lines: [{ message: "first\nsecond\n" }, { message: "third" }],
+    });
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
+      { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      status: 200,
+      data: { total: 3, logs: ["first", "second", "third"] },
+    });
   });
 
   it("returns an empty log page when log context is unavailable", async () => {
@@ -227,16 +298,47 @@ describe("aione external typed log route", () => {
 
     const { GET } = await import("./route");
     const response = await GET(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/log", {
-        method: "GET",
-        headers: { authorization: "Bearer external-key" },
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(requestKubernetesMock).not.toHaveBeenCalled();
+    expect(getHawkRunLogsMock).not.toHaveBeenCalled();
+    expect(body).toEqual({ status: 200, data: { total: 0, logs: [] } });
+  });
+
+  it("returns an empty log page when the action id is unavailable", async () => {
+    getRunDetailsMock.mockResolvedValue({
+      details: {
+        action: {
+          attempts: [{ attempt: 1, logContext: latestLogContext }],
+        },
+      },
+    });
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
+      { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(getHawkRunLogsMock).not.toHaveBeenCalled();
     expect(body).toEqual({ status: 200, data: { total: 0, logs: [] } });
   });
 
@@ -268,10 +370,13 @@ describe("aione external typed log route", () => {
 
     const { GET } = await import("./route");
     const response = await GET(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/log", {
-        method: "GET",
-        headers: { authorization: "Bearer external-key" },
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
@@ -283,20 +388,20 @@ describe("aione external typed log route", () => {
     });
   });
 
-  it("returns a 502 envelope when Kubernetes log reading fails", async () => {
-    requestKubernetesMock.mockResolvedValue({
-      ok: false,
-      status: 500,
-      text: "apiserver unavailable",
-      json: () => ({}),
-    });
+  it("returns a 502 envelope without leaking Hawk secrets when Hawk log reading fails", async () => {
+    getHawkRunLogsMock.mockRejectedValue(
+      new Error("HAWK_API_KEY is not configured"),
+    );
 
     const { GET } = await import("./route");
     const response = await GET(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/log", {
-        method: "GET",
-        headers: { authorization: "Bearer external-key" },
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
@@ -304,8 +409,9 @@ describe("aione external typed log route", () => {
     expect(response.status).toBe(502);
     expect(body).toEqual({
       status: 502,
-      message: "apiserver unavailable",
+      message: "failed to read Hawk logs",
     });
+    expect(body.message).not.toContain("HAWK_API_KEY");
   });
 
   it("rejects unsupported path types", async () => {
