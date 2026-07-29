@@ -136,6 +136,13 @@ spec:
               value: "3000"
             - name: FLYTE_API_ORIGIN
               value: http://flyte-binary-http:8090
+            - name: HAWK_API_URL
+              value: https://hawk.ops.fzyun.io
+            - name: HAWK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: flyte-console-hawk
+                  key: api-key
             - name: UNION_ORG_OVERRIDE
               value: aione
             - name: EXTERNAL_API_FLYTE_ORG
