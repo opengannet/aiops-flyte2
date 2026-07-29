@@ -288,7 +288,7 @@ function MetricPanel({
             dataKey="value"
             stroke={card.color}
             strokeWidth={2}
-            dot={false}
+            dot={points.length <= 1 ? { r: 2 } : false}
             isAnimationActive={false}
           />
         </LineChart>
@@ -307,7 +307,10 @@ function MetricFrame({
   reference?: string;
 }) {
   return (
-    <div className="flex h-[230px] flex-col gap-3 bg-white p-4 text-gray-900">
+    <div
+      className="flex flex-col gap-3 bg-white p-4 text-gray-900"
+      style={{ minHeight: 230 }}
+    >
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-xs font-medium uppercase text-gray-500">
@@ -321,14 +324,19 @@ function MetricFrame({
           </div>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1">{children}</div>
+      <div className="min-h-0" style={{ height: 150 }}>
+        {children}
+      </div>
     </div>
   );
 }
 
 function EmptyPanel({ message }: { message: string }) {
   return (
-    <div className="flex h-full min-h-[180px] items-center justify-center px-6 text-center text-sm text-gray-500">
+    <div
+      className="flex h-full items-center justify-center px-6 text-center text-sm text-gray-500"
+      style={{ minHeight: 150 }}
+    >
       {message}
     </div>
   );
