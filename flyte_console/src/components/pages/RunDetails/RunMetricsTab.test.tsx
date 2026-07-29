@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RunMetricsTab } from "./RunMetricsTab";
 
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   selectedActionId: "a0",
   selectedAttempt: {
     attempt: 2,
+    phase: 5,
     phaseTransitions: [
       {
         startTime: { seconds: 1000n, nanos: 0 },
@@ -55,11 +56,19 @@ vi.mock("recharts", () => ({
 }));
 
 describe("RunMetricsTab", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
+    vi.useRealTimers();
     mocks.fetch.mockReset();
     mocks.selectedActionId = "a0";
     mocks.selectedAttempt = {
       attempt: 2,
+      phase: 5,
       phaseTransitions: [
         {
           startTime: { seconds: 1000n, nanos: 0 },
@@ -138,6 +147,28 @@ describe("RunMetricsTab", () => {
     ).toBeVisible();
     expect(mocks.fetch).toHaveBeenCalledWith(
       "/v2/api/hawk/run-metrics?org=aione&project=aione&domain=development&runId=run-a&actionId=a0&attempt=2&start=970&end=1150&step=60",
+      expect.objectContaining({ cache: "no-store" }),
+    );
+  });
+
+  it("extends the metrics window to now for a running action attempt", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(2000 * 1000);
+    mocks.selectedAttempt = {
+      attempt: 2,
+      phase: 4,
+      phaseTransitions: [
+        {
+          startTime: { seconds: 1000n, nanos: 0 },
+          endTime: { seconds: 1120n, nanos: 0 },
+        },
+      ],
+    };
+
+    render(<RunMetricsTab />);
+
+    expect(await screen.findByText("CPU Usage")).toBeVisible();
+    expect(mocks.fetch).toHaveBeenCalledWith(
+      "/v2/api/hawk/run-metrics?org=aione&project=aione&domain=development&runId=run-a&actionId=a0&attempt=2&start=970&end=2000&step=60",
       expect.objectContaining({ cache: "no-store" }),
     );
   });

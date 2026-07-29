@@ -9,6 +9,8 @@ import { timestampToMillis } from "@/lib/dateUtils";
 import { useOrg } from "@/hooks/useOrg";
 import { getConsoleApiPath } from "@/components/pages/DevelopmentInstances/utils";
 import { TabSection } from "@/components/TabSection";
+import { isAttemptTerminal } from "@/lib/attemptUtils";
+import type { ActionAttempt } from "@/gen/flyteidl2/workflow/run_definition_pb";
 import type { RunDetailsPageParams } from "./types";
 import { useSelectedActionId } from "./hooks/useSelectedItem";
 import { useSelectedAttemptStore } from "./state/AttemptStore";
@@ -93,7 +95,7 @@ export const RunMetricsTab = () => {
     if (!selectedActionId) {
       return null;
     }
-    const window = buildMetricsWindow(selectedAttempt?.phaseTransitions);
+    const window = buildMetricsWindow(selectedAttempt);
     const search = new URLSearchParams();
     search.set("org", org);
     search.set("project", params.project);
@@ -114,6 +116,7 @@ export const RunMetricsTab = () => {
     params.runId,
     selectedActionId,
     selectedAttempt?.attempt,
+    selectedAttempt?.phase,
     selectedAttempt?.phaseTransitions,
   ]);
 
@@ -342,10 +345,8 @@ function EmptyPanel({ message }: { message: string }) {
   );
 }
 
-function buildMetricsWindow(
-  phaseTransitions:
-    { startTime?: Timestamp; endTime?: Timestamp }[] | undefined,
-) {
+function buildMetricsWindow(attempt: ActionAttempt | null | undefined) {
+  const phaseTransitions = attempt?.phaseTransitions;
   const timestamps =
     phaseTransitions
       ?.flatMap((transition) => [
@@ -360,7 +361,10 @@ function buildMetricsWindow(
   }
 
   const start = Math.max(0, Math.min(...timestamps) - 30);
-  const end = Math.max(...timestamps) + 30;
+  const latestPhaseTime = Math.max(...timestamps) + 30;
+  const end = isAttemptTerminal(attempt)
+    ? latestPhaseTime
+    : Math.max(latestPhaseTime, Math.floor(Date.now() / 1000));
   return {
     start,
     end: end > start ? end : start + 60,
