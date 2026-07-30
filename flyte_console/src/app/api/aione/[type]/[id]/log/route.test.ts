@@ -131,10 +131,10 @@ describe("aione external typed log route", () => {
       limit: 10000,
       targets: [],
       lines: [
-        { message: "line 1" },
-        { message: "line 2" },
-        { message: "line 3" },
-        { message: "line 4" },
+        { timestamp: { seconds: 100, nanos: 0 }, message: "line 1" },
+        { timestamp: { seconds: 200, nanos: 0 }, message: "line 2" },
+        { timestamp: { seconds: 300, nanos: 0 }, message: "line 3" },
+        { timestamp: { seconds: 400, nanos: 0 }, message: "line 4" },
       ],
     });
   });
@@ -196,7 +196,10 @@ describe("aione external typed log route", () => {
       status: 200,
       data: {
         total: 4,
-        logs: ["line 3", "line 4"],
+        logs: [
+          { time: "1970-01-01T00:03:20.000Z", log: "line 2" },
+          { time: "1970-01-01T00:01:40.000Z", log: "line 1" },
+        ],
       },
     });
   });
@@ -221,9 +224,41 @@ describe("aione external typed log route", () => {
     );
     expect(body.data).toEqual({
       total: 4,
-      logs: ["line 1", "line 2", "line 3", "line 4"],
+      logs: [
+        { time: "1970-01-01T00:06:40.000Z", log: "line 4" },
+        { time: "1970-01-01T00:05:00.000Z", log: "line 3" },
+        { time: "1970-01-01T00:03:20.000Z", log: "line 2" },
+        { time: "1970-01-01T00:01:40.000Z", log: "line 1" },
+      ],
     });
     expect(requestKubernetesMock).not.toHaveBeenCalled();
+  });
+
+  it("returns the latest page first when ordering external Hawk logs", async () => {
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log?page=1&size=2",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
+      { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      status: 200,
+      data: {
+        total: 4,
+        logs: [
+          { time: "1970-01-01T00:06:40.000Z", log: "line 4" },
+          { time: "1970-01-01T00:05:00.000Z", log: "line 3" },
+        ],
+      },
+    });
   });
 
   it("returns Hawk historical logs when the pod has already been cleaned up", async () => {
@@ -253,18 +288,29 @@ describe("aione external typed log route", () => {
       status: 200,
       data: {
         total: 4,
-        logs: ["line 1", "line 2", "line 3", "line 4"],
+        logs: [
+          { time: "1970-01-01T00:06:40.000Z", log: "line 4" },
+          { time: "1970-01-01T00:05:00.000Z", log: "line 3" },
+          { time: "1970-01-01T00:03:20.000Z", log: "line 2" },
+          { time: "1970-01-01T00:01:40.000Z", log: "line 1" },
+        ],
       },
     });
   });
 
-  it("splits multiline Hawk messages into the legacy string log contract", async () => {
+  it("splits multiline Hawk messages and keeps the source timestamp on each external log line", async () => {
     getHawkRunLogsMock.mockResolvedValue({
       start: 100,
       end: 200,
       limit: 10000,
       targets: [],
-      lines: [{ message: "first\nsecond\n" }, { message: "third" }],
+      lines: [
+        {
+          timestamp: { seconds: 100, nanos: 123000000 },
+          message: "first\nsecond\n",
+        },
+        { timestamp: { seconds: 200, nanos: 0 }, message: "third" },
+      ],
     });
 
     const { GET } = await import("./route");
@@ -283,7 +329,43 @@ describe("aione external typed log route", () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({
       status: 200,
-      data: { total: 3, logs: ["first", "second", "third"] },
+      data: {
+        total: 3,
+        logs: [
+          { time: "1970-01-01T00:03:20.000Z", log: "third" },
+          { time: "1970-01-01T00:01:40.123Z", log: "first" },
+          { time: "1970-01-01T00:01:40.123Z", log: "second" },
+        ],
+      },
+    });
+  });
+
+  it("returns an empty time string when a Hawk log has no timestamp", async () => {
+    getHawkRunLogsMock.mockResolvedValue({
+      start: 100,
+      end: 200,
+      limit: 10000,
+      targets: [],
+      lines: [{ message: "untimed" }],
+    });
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/log",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
+      { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual({
+      status: 200,
+      data: { total: 1, logs: [{ time: "", log: "untimed" }] },
     });
   });
 

@@ -970,11 +970,20 @@ function splitLogLines(text: string) {
 }
 
 function hawkRunLogLinesToExternalLines(lines: HawkRunLogLine[]) {
-  return lines.flatMap((line) => splitLogLines(line.message));
+  return [...lines]
+    .sort(
+      (left, right) =>
+        hawkLogTimestampMillis(right.timestamp) -
+        hawkLogTimestampMillis(left.timestamp),
+    )
+    .flatMap((line) => {
+      const time = hawkLogTimestampIso(line.timestamp);
+      return splitLogLines(line.message).map((log) => ({ time, log }));
+    });
 }
 
 function paginateLogLines(
-  lines: string[],
+  lines: Array<{ time: string; log: string }>,
   pagination: { page: number; size: number },
 ) {
   const start = (pagination.page - 1) * pagination.size;
@@ -982,6 +991,25 @@ function paginateLogLines(
     total: lines.length,
     logs: lines.slice(start, start + pagination.size),
   };
+}
+
+function hawkLogTimestampIso(timestamp: HawkRunLogLine["timestamp"]) {
+  const milliseconds = hawkLogTimestampMillis(timestamp);
+  return timestamp && Number.isFinite(milliseconds)
+    ? new Date(milliseconds).toISOString()
+    : "";
+}
+
+function hawkLogTimestampMillis(timestamp: HawkRunLogLine["timestamp"]) {
+  if (!timestamp) {
+    return 0;
+  }
+  const seconds = Number(timestamp.seconds);
+  const nanos = Number(timestamp.nanos ?? 0);
+  if (!Number.isFinite(seconds) || !Number.isFinite(nanos)) {
+    return 0;
+  }
+  return seconds * 1000 + Math.floor(nanos / 1_000_000);
 }
 
 function emptyAioneLogPage() {
