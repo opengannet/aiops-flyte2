@@ -41,14 +41,12 @@ describe("AIONE monitor service", () => {
         gpuUtilization: [
           {
             metric: {
-              container_id: "/k8s/flyte/run-a-a0-0-0/main",
               gpu_uuid: "GPU-aaaa",
             },
             points: [{ timestamp: 1000, value: 70.123 }],
           },
           {
             metric: {
-              container_id: "/k8s/flyte/run-a-a0-0-0/main",
               gpu_uuid: "GPU-bbbb",
             },
             points: [{ timestamp: 1000, value: 80 }],
@@ -57,14 +55,12 @@ describe("AIONE monitor service", () => {
         gpuMemoryUsage: [
           {
             metric: {
-              container_id: "/k8s/flyte/run-a-a0-0-0/main",
               gpu_uuid: "GPU-aaaa",
             },
             points: [{ timestamp: 1000, value: 35.456 }],
           },
           {
             metric: {
-              container_id: "/k8s/flyte/run-a-a0-0-0/main",
               gpu_uuid: "GPU-bbbb",
             },
             points: [{ timestamp: 1000, value: 20 }],

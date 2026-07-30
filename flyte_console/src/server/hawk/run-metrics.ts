@@ -28,15 +28,15 @@ const METRIC_DEFINITIONS = {
     label: "GPU Utilization",
     unit: "percent",
     aggregation: "avg",
-    query: (containerId: string) =>
-      `container_resources_gpu_usage_percent{container_id="${containerId}"}`,
+    query: (gpuUuid: string) =>
+      `node_resources_gpu_utilization_percent_avg{gpu_uuid="${gpuUuid}"}`,
   },
   gpuMemoryUsage: {
     label: "GPU Memory Usage",
     unit: "percent",
     aggregation: "avg",
-    query: (containerId: string) =>
-      `container_resources_gpu_memory_usage_percent{container_id="${containerId}"}`,
+    query: (gpuUuid: string) =>
+      `node_resources_gpu_memory_utilization_percent_avg{gpu_uuid="${gpuUuid}"}`,
   },
 } as const;
 
@@ -91,6 +91,9 @@ export type HawkRunMetricsDependencies = HawkRunTargetDependencies & {
     step: number;
   }) => Promise<PrometheusMatrixData>;
 };
+
+const GPU_UUID_DISCOVERY_QUERY = (containerId: string) =>
+  `container_resources_gpu_usage_percent{container_id="${containerId}"}`;
 
 type HawkRunMetricsResolvedDependencies = HawkRunTargetDependencies & {
   queryHawkRange: NonNullable<HawkRunMetricsDependencies["queryHawkRange"]>;
@@ -175,15 +178,11 @@ async function queryMetric(
     };
   }
 
-  const matrices = await Promise.all(
-    targets.map((target) =>
-      queryRange({
-        query: definition.query(escapePrometheusLabelValue(target.containerId)),
-        start: params.start,
-        end: params.end,
-        step: params.step,
-      }),
-    ),
+  const matrices = await queryMatricesForMetric(
+    key,
+    targets,
+    params,
+    queryRange,
   );
   const points = aggregateMatrices(
     matrices,
@@ -209,7 +208,37 @@ async function queryMetricSeries(
     return [];
   }
 
-  const matrices = await Promise.all(
+  const matrices = await queryMatricesForMetric(
+    key,
+    targets,
+    params,
+    queryRange,
+  );
+  return matrices.flatMap(matrixToRawSeries);
+}
+
+async function queryMatricesForMetric(
+  key: MetricKey,
+  targets: HawkRunMetricsTarget[],
+  params: HawkRunMetricsParams,
+  queryRange: Required<HawkRunMetricsDependencies>["queryHawkRange"],
+) {
+  const definition = METRIC_DEFINITIONS[key];
+  if (isGpuMetricKey(key)) {
+    const gpuUuids = await discoverGpuUuids(targets, params, queryRange);
+    return Promise.all(
+      gpuUuids.map((gpuUuid) =>
+        queryRange({
+          query: definition.query(escapePrometheusLabelValue(gpuUuid)),
+          start: params.start,
+          end: params.end,
+          step: params.step,
+        }),
+      ),
+    );
+  }
+
+  return Promise.all(
     targets.map((target) =>
       queryRange({
         query: definition.query(escapePrometheusLabelValue(target.containerId)),
@@ -219,7 +248,41 @@ async function queryMetricSeries(
       }),
     ),
   );
-  return matrices.flatMap(matrixToRawSeries);
+}
+
+async function discoverGpuUuids(
+  targets: HawkRunMetricsTarget[],
+  params: HawkRunMetricsParams,
+  queryRange: Required<HawkRunMetricsDependencies>["queryHawkRange"],
+) {
+  const matrices = await Promise.all(
+    targets.map((target) =>
+      queryRange({
+        query: GPU_UUID_DISCOVERY_QUERY(
+          escapePrometheusLabelValue(target.containerId),
+        ),
+        start: params.start,
+        end: params.end,
+        step: params.step,
+      }),
+    ),
+  );
+  const seen = new Set<string>();
+  for (const matrix of matrices) {
+    for (const series of matrix.result ?? []) {
+      const gpuUuid = series.metric?.gpu_uuid?.trim();
+      if (gpuUuid) {
+        seen.add(gpuUuid);
+      }
+    }
+  }
+  return Array.from(seen);
+}
+
+function isGpuMetricKey(
+  key: MetricKey,
+): key is "gpuUtilization" | "gpuMemoryUsage" {
+  return key === "gpuUtilization" || key === "gpuMemoryUsage";
 }
 
 function aggregateMatrices(

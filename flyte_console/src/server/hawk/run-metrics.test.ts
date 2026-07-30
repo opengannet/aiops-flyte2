@@ -159,6 +159,19 @@ describe("Hawk run metrics", () => {
       listPods: async () => [],
       queryHawkRange: async ({ query }) => {
         queries.push(query);
+        if (query.includes("container_resources_gpu_usage_percent")) {
+          return {
+            result: [
+              {
+                metric: {
+                  container_id: "/k8s/flyte/run-a-a0-0-0/ssh",
+                  gpu_uuid: "GPU-aaaa",
+                },
+                values: [[1000, "0"]] as Array<[number, string]>,
+              },
+            ],
+          };
+        }
         return {
           result: [
             {
@@ -173,20 +186,31 @@ describe("Hawk run metrics", () => {
       },
     });
 
-    expect(queries).toEqual([
-      'rate(container_resources_cpu_usage_seconds_total{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}[2m])',
-      'container_resources_memory_rss_bytes{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}',
-      'container_resources_gpu_usage_percent{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}',
+    expect(queries).toEqual(
+      expect.arrayContaining([
+        'rate(container_resources_cpu_usage_seconds_total{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}[2m])',
+        'container_resources_memory_rss_bytes{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}',
+        'container_resources_gpu_usage_percent{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}',
+        'node_resources_gpu_utilization_percent_avg{gpu_uuid="GPU-aaaa"}',
+        'node_resources_gpu_memory_utilization_percent_avg{gpu_uuid="GPU-aaaa"}',
+      ]),
+    );
+    expect(queries).not.toContain(
       'container_resources_gpu_memory_usage_percent{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}',
-    ]);
+    );
     expect(result.metrics.cpuUsage.points).toEqual([
       { timestamp: 1000, value: 1 },
       { timestamp: 1060, value: 2 },
     ]);
     expect(result.metrics.memoryRss.unit).toBe("bytes");
+    expect(result.metrics.gpuUtilization.points).toEqual([
+      { timestamp: 1000, value: 1 },
+      { timestamp: 1060, value: 2 },
+    ]);
   });
 
-  it("returns non-aggregated metric series with Prometheus labels for monitor consumers", async () => {
+  it("returns GPU metric series from node-level GPU UUID metrics for monitor consumers", async () => {
+    const queries: string[] = [];
     const result = await getHawkRunMetricSeries(
       baseParams,
       ["gpuUtilization", "gpuMemoryUsage"],
@@ -223,20 +247,50 @@ describe("Hawk run metrics", () => {
           },
         }),
         listPods: async () => [],
-        queryHawkRange: async ({ query }) => ({
-          result: [
-            {
-              metric: {
-                container_id: "/k8s/flyte/run-a-a0-0-0/ssh",
-                gpu_uuid: query.includes("memory") ? "GPU-bbbb" : "GPU-aaaa",
+        queryHawkRange: async ({ query }) => {
+          queries.push(query);
+          if (query.includes("container_resources_gpu_usage_percent")) {
+            return {
+              result: [
+                {
+                  metric: {
+                    container_id: "/k8s/flyte/run-a-a0-0-0/ssh",
+                    gpu_uuid: "GPU-aaaa",
+                  },
+                  values: [[1000, "0"]] as Array<[number, string]>,
+                },
+              ],
+            };
+          }
+          return {
+            result: [
+              {
+                metric: {
+                  gpu_uuid: "GPU-aaaa",
+                },
+                values: [
+                  [
+                    1000,
+                    query.includes("memory") ? "35.456" : "70.123",
+                  ],
+                ] as Array<[number, string]>,
               },
-              values: [[1000, "70.123"]] as Array<[number, string]>,
-            },
-          ],
-        }),
+            ],
+          };
+        },
       },
     );
 
+    expect(queries).toEqual(
+      expect.arrayContaining([
+        'container_resources_gpu_usage_percent{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}',
+        'node_resources_gpu_utilization_percent_avg{gpu_uuid="GPU-aaaa"}',
+        'node_resources_gpu_memory_utilization_percent_avg{gpu_uuid="GPU-aaaa"}',
+      ]),
+    );
+    expect(queries).not.toContain(
+      'container_resources_gpu_memory_usage_percent{container_id="/k8s/flyte/run-a-a0-0-0/ssh"}',
+    );
     expect(result.targets).toEqual([
       {
         namespace: "flyte",
@@ -250,13 +304,19 @@ describe("Hawk run metrics", () => {
     expect(result.metrics.gpuUtilization).toEqual([
       {
         metric: {
-          container_id: "/k8s/flyte/run-a-a0-0-0/ssh",
           gpu_uuid: "GPU-aaaa",
         },
         points: [{ timestamp: 1000, value: 70.123 }],
       },
     ]);
-    expect(result.metrics.gpuMemoryUsage[0].metric.gpu_uuid).toBe("GPU-bbbb");
+    expect(result.metrics.gpuMemoryUsage).toEqual([
+      {
+        metric: {
+          gpu_uuid: "GPU-aaaa",
+        },
+        points: [{ timestamp: 1000, value: 35.456 }],
+      },
+    ]);
   });
 
   it("surfaces Hawk query errors from the whitelisted metric fetch", async () => {
