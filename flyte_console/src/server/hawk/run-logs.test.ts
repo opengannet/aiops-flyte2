@@ -174,4 +174,53 @@ describe("Hawk run logs", () => {
       expect.objectContaining({ start: 1970, end: 3000 }),
     );
   });
+
+  it("does not stop the log query window at the last completed phase for a running attempt", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(3000 * 1000);
+    const queryHawkLogs = vi.fn(async () => ({ entries: [], limit: 5000 }));
+
+    await getHawkRunLogs(baseParams, {
+      getActionDetails: async () =>
+        ({
+          attempts: [
+            {
+              attempt: 2,
+              phase: 4,
+              startTime: { seconds: 2000n, nanos: 0 },
+              phaseTransitions: [
+                {
+                  startTime: { seconds: 2000n, nanos: 0 },
+                  endTime: { seconds: 2060n, nanos: 0 },
+                },
+                {
+                  startTime: { seconds: 2060n, nanos: 0 },
+                  endTime: { seconds: 2090n, nanos: 0 },
+                },
+                {
+                  startTime: { seconds: 2090n, nanos: 0 },
+                },
+              ],
+              logContext: {
+                primaryPodName: "run-a-a0-0-0",
+                pods: [
+                  {
+                    namespace: "flyte",
+                    podName: "run-a-a0-0-0",
+                    primaryContainerName: "ssh",
+                    containers: [{ containerName: "ssh" }],
+                    initContainers: [],
+                  },
+                ],
+              },
+            },
+          ],
+        }) as any,
+      listPods: async () => [],
+      queryHawkLogs,
+    });
+
+    expect(queryHawkLogs).toHaveBeenCalledWith(
+      expect.objectContaining({ start: 1970, end: 3000 }),
+    );
+  });
 });

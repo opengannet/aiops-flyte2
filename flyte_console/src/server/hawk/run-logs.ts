@@ -96,16 +96,18 @@ function buildLogsWindow(
 
   const derived = deriveAttemptWindow(attempt);
   const now = nowSeconds();
+  const shouldUseLiveEnd = shouldUseLiveLogEnd(attempt, derived.end);
   const rawEnd =
     params.end ??
+    (shouldUseLiveEnd ? now : undefined) ??
     derived.end ??
-    (attempt && !isAttemptTerminal(attempt) ? now : undefined) ??
     now;
   const rawStart =
     params.start ?? derived.start ?? rawEnd - DEFAULT_LOG_WINDOW_SECONDS;
 
   const shouldPadStart = params.start === undefined;
-  const shouldPadEnd = params.end === undefined && derived.end !== undefined;
+  const shouldPadEnd =
+    params.end === undefined && !shouldUseLiveEnd && derived.end !== undefined;
   const start = Math.max(
     0,
     rawStart - (shouldPadStart ? LOG_WINDOW_PADDING_SECONDS : 0),
@@ -115,6 +117,16 @@ function buildLogsWindow(
     rawEnd + (shouldPadEnd ? LOG_WINDOW_PADDING_SECONDS : 0),
   );
   return { start, end };
+}
+
+function shouldUseLiveLogEnd(
+  attempt: ActionAttempt | undefined,
+  derivedEnd: number | undefined,
+) {
+  if (!attempt || isAttemptTerminal(attempt) || attempt.endTime) {
+    return false;
+  }
+  return derivedEnd === undefined || hasOpenPhaseTransition(attempt);
 }
 
 function deriveAttemptWindow(attempt: ActionAttempt | undefined) {
@@ -135,6 +147,16 @@ function deriveAttemptWindow(attempt: ActionAttempt | undefined) {
       ]) ?? [],
     );
   return { start, end };
+}
+
+function hasOpenPhaseTransition(attempt: ActionAttempt) {
+  return (
+    attempt.phaseTransitions?.some(
+      (transition) =>
+        timestampToSeconds(transition.startTime) !== undefined &&
+        timestampToSeconds(transition.endTime) === undefined,
+    ) ?? false
+  );
 }
 
 function entriesToLogLines(entries: HawkApiLogEntry[]) {
