@@ -281,7 +281,7 @@ async function listKubernetesPods({
   return response.json<KubernetesPodList>().items ?? [];
 }
 
-function parseCpuCores(value: string | number | undefined) {
+export function parseCpuCores(value: string | number | undefined) {
   if (value === undefined) {
     return undefined;
   }
@@ -298,7 +298,7 @@ function parseCpuCores(value: string | number | undefined) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function parseMemoryBytes(value: string | number | undefined) {
+export function parseMemoryBytes(value: string | number | undefined) {
   if (value === undefined) {
     return undefined;
   }

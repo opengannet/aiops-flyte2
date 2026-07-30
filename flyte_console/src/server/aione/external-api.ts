@@ -210,12 +210,12 @@ export async function getAioneExternalRunDetails(
   type: AioneExternalType,
   sourceId: string,
 ) {
-  const runId =
+  const { runId, resourceSpec } =
     type === "task"
-      ? await resolveTaskRunIdentifier(sourceId)
-      : await resolveInstanceRunIdentifier(sourceId);
+      ? await resolveTaskRunContext(sourceId)
+      : await resolveInstanceRunContext(sourceId);
   const response = await createFlyteRunClient().getRunDetails({ runId });
-  return { runId, details: response.details };
+  return { runId, resourceSpec, details: response.details };
 }
 
 export async function getAioneExternalLogs(
@@ -807,13 +807,20 @@ async function clearStoreRuntimeResources(sourceStoreId: string) {
 async function resolveInstanceRunIdentifier(
   id: string,
 ): Promise<FlyteRunIdentifier> {
+  return (await resolveInstanceRunContext(id)).runId;
+}
+
+async function resolveInstanceRunContext(id: string): Promise<{
+  runId: FlyteRunIdentifier;
+  resourceSpec?: { cpu?: string; memory?: string };
+}> {
   const sourceOrRunId = id.trim();
   if (!sourceOrRunId) {
     throw statusError("id is required", 400);
   }
   const directRunId = parseFlyteWorkflowId(sourceOrRunId);
   if (directRunId) {
-    return directRunId;
+    return { runId: directRunId };
   }
 
   const instance = await getDevelopmentInstanceById(
@@ -822,10 +829,16 @@ async function resolveInstanceRunIdentifier(
   );
   if (instance.latestRunName) {
     return {
-      org: instance.org,
-      project: instance.project,
-      domain: instance.domain,
-      name: instance.latestRunName,
+      runId: {
+        org: instance.org,
+        project: instance.project,
+        domain: instance.domain,
+        name: instance.latestRunName,
+      },
+      resourceSpec: {
+        cpu: instance.resourceSpec?.cpu,
+        memory: instance.resourceSpec?.memory,
+      },
     };
   }
 
@@ -838,6 +851,13 @@ async function resolveInstanceRunIdentifier(
 async function resolveTaskRunIdentifier(
   id: string,
 ): Promise<FlyteRunIdentifier> {
+  return (await resolveTaskRunContext(id)).runId;
+}
+
+async function resolveTaskRunContext(id: string): Promise<{
+  runId: FlyteRunIdentifier;
+  resourceSpec?: { cpu?: string; memory?: string };
+}> {
   const sourceId = id.trim();
   if (!sourceId) {
     throw statusError("id is required", 400);
@@ -848,10 +868,16 @@ async function resolveTaskRunIdentifier(
     throw statusError("task has no run", 404);
   }
   return {
-    org: taskID.org,
-    project: taskID.project,
-    domain: taskID.domain,
-    name: task.latestRunName,
+    runId: {
+      org: taskID.org,
+      project: taskID.project,
+      domain: taskID.domain,
+      name: task.latestRunName,
+    },
+    resourceSpec: {
+      cpu: task.resourceSpec?.cpu,
+      memory: task.resourceSpec?.memory,
+    },
   };
 }
 

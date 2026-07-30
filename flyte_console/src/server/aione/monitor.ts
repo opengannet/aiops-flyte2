@@ -11,9 +11,9 @@ import {
   type HawkRunMetricSeriesResult,
   type HawkRunMetricsDependencies,
   type HawkRunMetricsParams,
-  type HawkRunMetricsTarget,
   type MetricKey,
 } from "@/server/hawk/run-metrics";
+import { parseCpuCores, parseMemoryBytes } from "@/server/hawk/run-targets";
 
 export type AioneMonitorMode = "cpu" | "memory" | "gpu";
 
@@ -41,6 +41,10 @@ type ActionDetailsForMonitor = {
 
 type AioneRunDetailsForMonitor = {
   runId: FlyteRunIdentifier;
+  resourceSpec?: {
+    cpu?: string;
+    memory?: string;
+  };
   details?: {
     action?: ActionDetailsForMonitor;
   };
@@ -95,7 +99,10 @@ export async function getAioneExternalMonitor(
   const nowSeconds =
     dependencies.nowSeconds ?? (() => Math.floor(Date.now() / 1000));
 
-  const { runId, details } = await resolveRunDetails(type, sourceId);
+  const { runId, resourceSpec, details } = await resolveRunDetails(
+    type,
+    sourceId,
+  );
   const action = details?.action;
   const actionId = action?.id?.name?.trim();
   if (!actionId) {
@@ -122,7 +129,7 @@ export async function getAioneExternalMonitor(
     },
   );
 
-  return buildMonitorPoints(result, query.modes);
+  return buildMonitorPoints(result, query.modes, resourceSpec);
 }
 
 function parseMonitorModes(searchParams: URLSearchParams) {
@@ -200,6 +207,7 @@ function metricKeysForModes(modes: AioneMonitorMode[]) {
 function buildMonitorPoints(
   result: HawkRunMetricSeriesForMonitor,
   modes: AioneMonitorMode[],
+  resourceSpec: AioneRunDetailsForMonitor["resourceSpec"],
 ) {
   const rows = new Map<number, AioneMonitorPoint>();
 
@@ -208,7 +216,7 @@ function buildMonitorPoints(
       rows,
       field: "cpu",
       seriesList: result.metrics.cpuUsage ?? [],
-      targets: result.targets,
+      request: getResourceSpecRequest(resourceSpec, "cpu"),
       requestKind: "cpu",
     });
   }
@@ -217,7 +225,7 @@ function buildMonitorPoints(
       rows,
       field: "memory",
       seriesList: result.metrics.memoryRss ?? [],
-      targets: result.targets,
+      request: getResourceSpecRequest(resourceSpec, "memory"),
       requestKind: "memory",
     });
   }
@@ -235,13 +243,13 @@ function addRequestBasedPercentages({
   rows,
   field,
   seriesList,
-  targets,
+  request,
   requestKind,
 }: {
   rows: Map<number, AioneMonitorPoint>;
   field: "cpu" | "memory";
   seriesList: HawkRawMetricSeries[];
-  targets: HawkRunMetricsTarget[];
+  request: number | undefined;
   requestKind: "cpu" | "memory";
 }) {
   const accumulated = new Map<
@@ -250,7 +258,6 @@ function addRequestBasedPercentages({
   >();
 
   seriesList.forEach((series, index) => {
-    const request = getTargetRequest(series, targets, requestKind);
     if (!request) {
       throw statusError(
         requestKind === "cpu"
@@ -286,19 +293,14 @@ function addRequestBasedPercentages({
   }
 }
 
-function getTargetRequest(
-  series: HawkRawMetricSeries,
-  targets: HawkRunMetricsTarget[],
+function getResourceSpecRequest(
+  resourceSpec: AioneRunDetailsForMonitor["resourceSpec"],
   requestKind: "cpu" | "memory",
 ) {
-  const containerId = series.metric.container_id?.trim();
-  const target =
-    targets.find((item) => item.containerId === containerId) ??
-    (targets.length === 1 ? targets[0] : undefined);
   const request =
     requestKind === "cpu"
-      ? target?.cpuRequestCores
-      : target?.memoryRequestBytes;
+      ? parseCpuCores(resourceSpec?.cpu)
+      : parseMemoryBytes(resourceSpec?.memory);
   return Number.isFinite(request) && request !== undefined && request > 0
     ? request
     : undefined;

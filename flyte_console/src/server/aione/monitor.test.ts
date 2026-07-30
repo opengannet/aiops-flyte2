@@ -72,6 +72,10 @@ describe("AIONE monitor service", () => {
       nowSeconds: () => 1300,
       getAioneExternalRunDetails: async () => ({
         runId,
+        resourceSpec: {
+          cpu: "2",
+          memory: "1Gi",
+        },
         details: {
           action: {
             id: {
@@ -127,7 +131,121 @@ describe("AIONE monitor service", () => {
     expect(JSON.stringify(result)).not.toContain("vram-rate");
   });
 
-  it("rejects CPU percentages when the Kubernetes CPU request is unavailable", async () => {
+  it("uses persisted resource specs for CPU and memory percentages without pod requests", async () => {
+    const deps: AioneMonitorDependencies = {
+      nowSeconds: () => 1300,
+      getAioneExternalRunDetails: async () =>
+        ({
+          runId,
+          resourceSpec: {
+            cpu: "8",
+            memory: "16Gi",
+          },
+          details: {
+            action: { id: { name: "a0", run: runId } },
+          },
+        }) as any,
+      getHawkRunMetricSeries: async () => ({
+        targets: [
+          {
+            namespace: "flyte",
+            podName: "run-a-a0-0-0",
+            containerName: "main",
+            containerId: "/k8s/flyte/run-a-a0-0-0/main",
+          },
+        ],
+        metrics: {
+          cpuUsage: [
+            {
+              metric: { container_id: "/k8s/flyte/run-a-a0-0-0/main" },
+              points: [{ timestamp: 1000, value: 1 }],
+            },
+          ],
+          memoryRss: [
+            {
+              metric: { container_id: "/k8s/flyte/run-a-a0-0-0/main" },
+              points: [{ timestamp: 1000, value: 4 * 1024 * 1024 * 1024 }],
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = await getAioneExternalMonitor(
+      "instance",
+      "ins-contract-1",
+      { modes: ["cpu", "memory"], periodSeconds: 300 },
+      deps,
+    );
+
+    expect(result).toEqual([
+      {
+        time: "1970-01-01T00:16:40.000Z",
+        cpu: 12.5,
+        memory: 25,
+      },
+    ]);
+  });
+
+  it("ignores pod request values when persisted resource specs differ", async () => {
+    const deps: AioneMonitorDependencies = {
+      nowSeconds: () => 1300,
+      getAioneExternalRunDetails: async () =>
+        ({
+          runId,
+          resourceSpec: {
+            cpu: "8",
+            memory: "16Gi",
+          },
+          details: {
+            action: { id: { name: "a0", run: runId } },
+          },
+        }) as any,
+      getHawkRunMetricSeries: async () => ({
+        targets: [
+          {
+            namespace: "flyte",
+            podName: "run-a-a0-0-0",
+            containerName: "main",
+            containerId: "/k8s/flyte/run-a-a0-0-0/main",
+            cpuRequestCores: 2,
+            memoryRequestBytes: 4 * 1024 * 1024 * 1024,
+          },
+        ],
+        metrics: {
+          cpuUsage: [
+            {
+              metric: { container_id: "/k8s/flyte/run-a-a0-0-0/main" },
+              points: [{ timestamp: 1000, value: 1 }],
+            },
+          ],
+          memoryRss: [
+            {
+              metric: { container_id: "/k8s/flyte/run-a-a0-0-0/main" },
+              points: [{ timestamp: 1000, value: 4 * 1024 * 1024 * 1024 }],
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = await getAioneExternalMonitor(
+      "instance",
+      "ins-contract-1",
+      { modes: ["cpu", "memory"], periodSeconds: 300 },
+      deps,
+    );
+
+    expect(result).toEqual([
+      {
+        time: "1970-01-01T00:16:40.000Z",
+        cpu: 12.5,
+        memory: 25,
+      },
+    ]);
+  });
+
+  it("rejects CPU percentages when the persisted CPU resource spec is unavailable", async () => {
     const deps: AioneMonitorDependencies = {
       nowSeconds: () => 1300,
       getAioneExternalRunDetails: async () => ({
@@ -164,5 +282,47 @@ describe("AIONE monitor service", () => {
         deps,
       ),
     ).rejects.toThrow("CPU request is unavailable for monitor target");
+  });
+
+  it("rejects memory percentages when the persisted memory resource spec is unavailable", async () => {
+    const deps: AioneMonitorDependencies = {
+      nowSeconds: () => 1300,
+      getAioneExternalRunDetails: async () => ({
+        runId,
+        resourceSpec: {
+          cpu: "2",
+        },
+        details: {
+          action: { id: { name: "a0", run: runId } },
+        },
+      }),
+      getHawkRunMetricSeries: async () => ({
+        targets: [
+          {
+            namespace: "flyte",
+            podName: "run-a-a0-0-0",
+            containerName: "main",
+            containerId: "/k8s/flyte/run-a-a0-0-0/main",
+          },
+        ],
+        metrics: {
+          memoryRss: [
+            {
+              metric: { container_id: "/k8s/flyte/run-a-a0-0-0/main" },
+              points: [{ timestamp: 1000, value: 512 * 1024 * 1024 }],
+            },
+          ],
+        },
+      }),
+    };
+
+    await expect(
+      getAioneExternalMonitor(
+        "instance",
+        "ins-contract-1",
+        { modes: ["memory"], periodSeconds: 300 },
+        deps,
+      ),
+    ).rejects.toThrow("Memory request is unavailable for monitor target");
   });
 });

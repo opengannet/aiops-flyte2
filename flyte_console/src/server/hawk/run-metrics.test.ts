@@ -5,6 +5,7 @@ import {
   getHawkRunMetrics,
   getHawkRunMetricSeries,
 } from "@/server/hawk/run-metrics";
+import { parseCpuCores, parseMemoryBytes } from "@/server/hawk/run-targets";
 
 const baseParams = {
   org: "aione",
@@ -23,6 +24,13 @@ describe("Hawk run metrics", () => {
     expect(buildHawkContainerId("flyte", "run-a-a0-0-0", "ssh")).toBe(
       "/k8s/flyte/run-a-a0-0-0/ssh",
     );
+  });
+
+  it("parses persisted CPU and memory resource quantities", () => {
+    expect(parseCpuCores("500m")).toBe(0.5);
+    expect(parseCpuCores("8")).toBe(8);
+    expect(parseMemoryBytes("16Gi")).toBe(16 * 1024 * 1024 * 1024);
+    expect(parseMemoryBytes("32768Mi")).toBe(32768 * 1024 * 1024);
   });
 
   it("uses selected attempt log context before falling back to Kubernetes labels", async () => {
