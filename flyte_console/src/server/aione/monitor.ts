@@ -359,7 +359,7 @@ function getMonitorRow(
 }
 
 function getGpuMonitorValue(row: AioneMonitorPoint, gpuUuid: string) {
-  const field = `gpu-${gpuUuid}`;
+  const field = gpuUuid;
   const current = row[field];
   if (isGpuMonitorValue(current)) {
     return current;

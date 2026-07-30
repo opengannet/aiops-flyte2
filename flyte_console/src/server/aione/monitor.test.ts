@@ -117,11 +117,11 @@ describe("AIONE monitor service", () => {
         time: "1970-01-01T00:16:40.000Z",
         cpu: 50,
         memory: 50,
-        "gpu-GPU-aaaa": {
+        "GPU-aaaa": {
           gpu: 70.12,
           vram: 35.46,
         },
-        "gpu-GPU-bbbb": {
+        "GPU-bbbb": {
           gpu: 80,
           vram: 20,
         },
