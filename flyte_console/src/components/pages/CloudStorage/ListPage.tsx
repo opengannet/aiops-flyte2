@@ -8,7 +8,6 @@ import { Header } from "@/components/Header";
 import { NavPanelLayout } from "@/components/NavPanel/NavPanelLayout";
 import {
   CloudStorage,
-  CloudStorageStatus,
 } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_definition_pb";
 import {
   CloudStorageService,
@@ -40,8 +39,11 @@ type ProjectDomainParams = {
 const buttonClass =
   "inline-flex h-9 items-center justify-center gap-2 border border-zinc-300 bg-white px-3 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200";
 
-function statusText(status: CloudStorageStatus) {
-  return status === CloudStorageStatus.MATERIALIZED ? "已挂载" : "未挂载";
+function usageStatusText(podNames: string[] | undefined) {
+  if (!podNames) {
+    return "未知";
+  }
+  return podNames.length > 0 ? "使用中" : "未使用";
 }
 
 function idKey(storage: CloudStorage) {
@@ -53,6 +55,7 @@ export function CloudStorageListPage() {
   const org = useOrg();
   const client = useConnectRpcClient(CloudStorageService);
   const [items, setItems] = useState<CloudStorage[]>([]);
+  const [mounts, setMounts] = useState<Record<string, string[]> | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -84,7 +87,26 @@ export function CloudStorageListPage() {
       const response = await client.listCloudStorages(
         create(ListCloudStoragesRequestSchema, { project: projectId }),
       );
-      setItems(response.cloudStorages ?? []);
+      const cloudStorages = response.cloudStorages ?? [];
+      setItems(cloudStorages);
+      setMounts(null);
+      try {
+        const mountsResponse = await fetch("/api/cloud-storages/mounts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ storageIds: cloudStorages.map(idKey) }),
+        });
+        if (!mountsResponse.ok) {
+          throw new Error("failed to load live mounts");
+        }
+        const body = (await mountsResponse.json()) as {
+          data?: { mounts?: Record<string, string[]> };
+        };
+        setMounts(body.data?.mounts ?? {});
+      } catch (error) {
+        console.error("Error loading cloud storage live mounts", error);
+        setMessage("加载云存储挂载状态失败");
+      }
     } catch (error) {
       console.error("Error loading cloud storages", error);
       setMessage("加载云存储失败");
@@ -218,7 +240,7 @@ export function CloudStorageListPage() {
                   <th className="px-4 py-4">描述</th>
                   <th className="px-4 py-4">空间大小</th>
                   <th className="px-4 py-4">状态</th>
-                  <th className="px-4 py-4">挂载于</th>
+                  <th className="px-4 py-4">使用 Pod</th>
                   <th className="px-4 py-4">创建人</th>
                   <th className="px-4 py-4">创建时间</th>
                 </tr>
@@ -268,10 +290,12 @@ export function CloudStorageListPage() {
                     <td className="px-4 py-4">
                       <span className="inline-flex items-center gap-2">
                         <CircleStackIcon className="size-4 text-zinc-500" />
-                        {statusText(item.status)}
+                        {usageStatusText(mounts?.[idKey(item)])}
                       </span>
                     </td>
-                    <td className="px-4 py-4">{item.targetNamespace || "-"}</td>
+                    <td className="px-4 py-4">
+                      {mounts?.[idKey(item)]?.join(", ") || "-"}
+                    </td>
                     <td className="px-4 py-4">{item.creator || "-"}</td>
                     <td className="px-4 py-4 whitespace-nowrap">
                       {formatTimestamp(item.createdAt)}
