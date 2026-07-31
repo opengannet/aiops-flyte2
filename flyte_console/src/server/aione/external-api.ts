@@ -99,6 +99,7 @@ import {
   getAioneNodePortRange,
 } from "@/server/aione/helpers";
 import { getHawkRunLogs, type HawkRunLogLine } from "@/server/hawk/run-logs";
+import { buildCloudStoragePVCName } from "@/server/cloud-storage/naming";
 
 export type AioneExternalType = "instance" | "task";
 export type AioneClearType = AioneExternalType | "store";
@@ -586,6 +587,14 @@ async function createTrainingTaskRun(payload: unknown) {
     values,
     creator: values.sourceOrg || "external-api",
   });
+  await ensureExternalCloudStorages({
+    client: createCloudStorageClient(),
+    org: values.internalOrg,
+    project: values.project,
+    domain: values.domain,
+    creator: values.sourceOrg || "external-api",
+    mounts: values.cloudStorageMounts,
+  });
 
   const created = await client.createTrainingTask(
     create(CreateTrainingTaskRequestSchema, {
@@ -608,6 +617,12 @@ async function createTrainingTaskRun(payload: unknown) {
         gpuModel: values.gpuModel,
         bandwidth: values.bandwidth,
         codeRepositoryMounts,
+        cloudStorageMounts: values.cloudStorageMounts.map((mount) =>
+          create(CloudStorageMountSchema, {
+            cloudStorageId: mount.cloudStorageId,
+            mountPath: mount.mountPath,
+          }),
+        ),
         datasets: values.datasets,
       }),
       creator: values.sourceOrg || "external-api",
@@ -1166,6 +1181,13 @@ function buildExternalTrainingTaskValues(payload: unknown) {
   const resources = getPayloadObject(object.resourceDefinition);
   const datasets = parseExternalRuntimeDatasets(object.ossDatas, "ossDatas");
   const codeRepositories = parseExternalCodeRepositories(object.codes);
+  const defaultStorageClass =
+    process.env.EXTERNAL_API_DEFAULT_STORAGE_CLASS?.trim() ||
+    DEFAULT_AIONE_STORAGE_CLASS;
+  const cloudStorageMounts = parseExternalCloudStorageMounts(
+    object.datastores,
+    defaultStorageClass,
+  );
   return {
     internalOrg,
     sourceOrg,
@@ -1187,8 +1209,44 @@ function buildExternalTrainingTaskValues(payload: unknown) {
     gpuModel: stringField(resources, "gpuModel"),
     bandwidth: stringField(resources, "bandwidth"),
     codeRepositories,
+    cloudStorageMounts,
     datasets,
   };
+}
+
+function parseExternalCloudStorageMounts(
+  value: unknown,
+  defaultStorageClass: string,
+): NonNullable<DevelopmentInstanceCloudStorageMounts> {
+  if (value == null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw statusError("datastores must be an array", 400);
+  }
+  return value.map((item, index) => {
+    const datastore = getPayloadObject(item);
+    const id = requiredStringField(
+      datastore,
+      "id",
+      `datastores[${index}].id`,
+    );
+    return {
+      cloudStorageId: id,
+      pvcName: buildCloudStoragePVCName(id),
+      storageClass: defaultStorageClass,
+      size: `${positiveNumberField(
+        datastore.size,
+        1,
+        `datastores[${index}].size`,
+      )}Gi`,
+      mountPath: requiredAbsolutePathField(
+        datastore,
+        "path",
+        `datastores[${index}].path`,
+      ),
+    };
+  });
 }
 
 function parseExternalCodeRepositories(value: unknown) {

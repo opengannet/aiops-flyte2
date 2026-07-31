@@ -493,7 +493,7 @@ describe("aione external typed run route", () => {
           id: "stg-external-1",
         }),
         targetNamespace: "flyte",
-        pvcName: "ins-contract-1-stg-external-1",
+        pvcName: "cs-stg-external-1",
       }),
     );
     expect(ensureCloudStorageMock.mock.invocationCallOrder[0]).toBeLessThan(
@@ -518,6 +518,13 @@ describe("aione external typed run route", () => {
               branch: "master",
               path: "/data/js-sample",
               token: "code-token",
+            },
+          ],
+          datastores: [
+            {
+              id: "stg-task-1",
+              path: "/data/task-store",
+              size: 3,
             },
           ],
           datasets: [
@@ -585,6 +592,12 @@ describe("aione external typed run route", () => {
               mountPath: "/data/js-sample",
             }),
           ],
+          cloudStorageMounts: [
+            expect.objectContaining({
+              cloudStorageId: "stg-task-1",
+              mountPath: "/data/task-store",
+            }),
+          ],
           datasets: [
             expect.objectContaining({
               endpoint: "minio.flyte.svc",
@@ -596,6 +609,16 @@ describe("aione external typed run route", () => {
               bucketPath: "inputs",
             }),
           ],
+        }),
+      }),
+    );
+    expect(ensureCloudStorageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: expect.objectContaining({ id: "stg-task-1" }),
+        cloudStorage: expect.objectContaining({
+          name: "stg-task-1",
+          sizeGb: 3,
+          storageClassName: "bj1-ebs",
         }),
       }),
     );

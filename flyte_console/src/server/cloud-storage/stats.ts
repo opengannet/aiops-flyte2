@@ -7,6 +7,7 @@ import {
   loadHawkPvcHistory,
   type HawkPvcHistory,
 } from "@/server/cloud-storage/hawk-history";
+import { buildCloudStoragePVCName } from "@/server/cloud-storage/naming";
 import { statusError } from "@/server/http/response";
 import { requestKubernetes } from "@/server/kubernetes/client";
 
@@ -55,49 +56,43 @@ export async function loadCloudStoragePvcStats(
     dependencies.loadHawkHistory ?? loadHawkPvcHistory;
   const warnings: string[] = [];
   const pvcMap = new Map<string, KubernetesPVC>();
-  for (const pvc of await listCloudStoragePvcs({
+  const canonicalName = buildCloudStoragePVCName(storageId);
+  const canonicalPvc = await getPvcIfPresent({
     apiOrigin,
     namespace,
     token,
     ca,
-    storageId,
-  })) {
-    const name = pvc.metadata?.name?.trim();
-    if (name) {
-      pvcMap.set(pvcKey(pvc.metadata?.namespace ?? namespace, name), pvc);
-    }
-  }
-  for (const materialization of cloudStorage.materializations) {
-    const pvcName = materialization.pvcName?.trim();
-    const targetNamespace =
-      materialization.targetNamespace?.trim() || namespace;
-    const key = pvcKey(targetNamespace, pvcName);
-    if (pvcName && !pvcMap.has(key)) {
-      const pvc = await getPvcIfPresent({
+    pvcName: canonicalName,
+  });
+  if (canonicalPvc) {
+    pvcMap.set(pvcKey(namespace, canonicalName), canonicalPvc);
+  } else {
+    const recordedMaterialization = cloudStorage.materializations.find(
+      (item) => !item.targetNamespace || item.targetNamespace === namespace,
+    );
+    const recordedName =
+      recordedMaterialization?.pvcName?.trim() || cloudStorage.pvcName?.trim();
+    const recordedNamespace =
+      recordedMaterialization?.targetNamespace?.trim() ||
+      cloudStorage.targetNamespace?.trim() ||
+      namespace;
+    if (recordedName && recordedName !== canonicalName) {
+      const recordedPvc = await getPvcIfPresent({
         apiOrigin,
-        namespace: targetNamespace,
+        namespace: recordedNamespace,
         token,
         ca,
-        pvcName,
+        pvcName: recordedName,
       });
-      if (pvc) {
-        pvcMap.set(key, pvc);
+      if (recordedPvc) {
+        warnings.push(
+          `Canonical PVC ${canonicalName} was not found; using recorded legacy PVC ${recordedName}`,
+        );
+        pvcMap.set(
+          pvcKey(recordedNamespace, recordedName),
+          recordedPvc,
+        );
       }
-    }
-  }
-  if (pvcMap.size === 0 && cloudStorage.pvcName) {
-    const pvc = await getPvcIfPresent({
-      apiOrigin,
-      namespace: cloudStorage.targetNamespace || namespace,
-      token,
-      ca,
-      pvcName: cloudStorage.pvcName,
-    });
-    if (pvc) {
-      pvcMap.set(
-        pvcKey(pvc.metadata?.namespace ?? namespace, cloudStorage.pvcName),
-        pvc,
-      );
     }
   }
 
@@ -177,36 +172,6 @@ export function normalizeCloudStorage(cloudStorage: CloudStorage) {
       materializedAt: timestampToIso(materialization.materializedAt),
     })),
   };
-}
-
-async function listCloudStoragePvcs({
-  apiOrigin,
-  namespace,
-  token,
-  ca,
-  storageId,
-}: {
-  apiOrigin: string;
-  namespace: string;
-  token: string;
-  ca: string;
-  storageId: string;
-}) {
-  const labelSelector = [
-    ["flyte.org/cloud-storage", "true"],
-    ["flyte.org/cloud-storage-id", storageId],
-  ]
-    .map(([key, value]) => `${key}=${value}`)
-    .join(",");
-  const response = await requestKubernetes({
-    url: `${apiOrigin}/api/v1/namespaces/${encodeURIComponent(namespace)}/persistentvolumeclaims?labelSelector=${encodeURIComponent(labelSelector)}`,
-    token,
-    ca,
-  });
-  if (!response.ok) {
-    throw statusError(response.text || "failed to list PVCs", 502);
-  }
-  return response.json<KubernetesPVCList>().items ?? [];
 }
 
 async function getPvcIfPresent({
@@ -506,10 +471,6 @@ function timestampToIso(timestamp?: { seconds?: bigint | number }) {
   }
   return new Date(Number(timestamp.seconds) * 1000).toISOString();
 }
-
-type KubernetesPVCList = {
-  items?: KubernetesPVC[];
-};
 
 type KubernetesPVC = {
   metadata?: {

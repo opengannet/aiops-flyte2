@@ -40,11 +40,11 @@ const cloudStorage = {
   sizeGb: 2,
   storageClassName: "bj1-ebs",
   targetNamespace: "flyte",
-  pvcName: "pvc-1",
+  pvcName: "cs-stg-1",
   materializations: [
     {
       targetNamespace: "flyte",
-      pvcName: "pvc-1",
+      pvcName: "cs-stg-1",
     },
   ],
 };
@@ -62,24 +62,20 @@ function mockPvcUsage({
       ? usedBytes
       : 1048576;
   requestKubernetesMock.mockImplementation(({ url }) => {
-    if (url.includes("/persistentvolumeclaims?")) {
+    if (url.includes("/persistentvolumeclaims/")) {
       return {
         ok: true,
         status: 200,
         json: () => ({
-          items: [
-            {
-              metadata: { name: "pvc-1", namespace: "flyte" },
-              spec: {
-                storageClassName: "bj1-ebs",
-                resources: { requests: { storage: "2Gi" } },
-              },
-              status: {
-                phase: "Bound",
-                capacity: { storage: capacityStorage },
-              },
-            },
-          ],
+          metadata: { name: "cs-stg-1", namespace: "flyte" },
+          spec: {
+            storageClassName: "bj1-ebs",
+            resources: { requests: { storage: "2Gi" } },
+          },
+          status: {
+            phase: "Bound",
+            capacity: { storage: capacityStorage },
+          },
         }),
       };
     }
@@ -94,7 +90,7 @@ function mockPvcUsage({
               spec: {
                 nodeName: "node-a",
                 volumes: [
-                  { persistentVolumeClaim: { claimName: "pvc-1" } },
+                  { persistentVolumeClaim: { claimName: "cs-stg-1" } },
                 ],
               },
               status: { phase: "Running" },
@@ -114,7 +110,7 @@ function mockPvcUsage({
         capacityBytes: 2147483648,
         availableBytes: 2146435072,
         time: "2026-07-31T01:02:03Z",
-        pvcRef: { name: "pvc-1", namespace: "flyte" },
+        pvcRef: { name: "cs-stg-1", namespace: "flyte" },
       };
       if (resolvedUsedBytes !== undefined) {
         volume.usedBytes = resolvedUsedBytes;
@@ -196,16 +192,16 @@ describe("aione external PVC size route", () => {
   it("decodes URL encoded cloud storage ids before lookup", async () => {
     const { GET } = await import("./route");
     const response = await GET(
-      new NextRequest("http://localhost/v2/api/aione/pvc/cs%2Fabc/size", {
+      new NextRequest("http://localhost/v2/api/aione/pvc/cs%2Dabc/size", {
         method: "GET",
         headers: { authorization: "Bearer external-key" },
       }),
-      { params: Promise.resolve({ id: "cs%2Fabc" }) },
+      { params: Promise.resolve({ id: "cs%2Dabc" }) },
     );
 
     expect(response.status).toBe(200);
     expect(getCloudStorageByIdMock).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "cs/abc" }),
+      expect.objectContaining({ id: "cs-abc" }),
     );
   });
 
@@ -276,11 +272,11 @@ describe("aione external PVC size route", () => {
       cloudStorage: { ...cloudStorage, pvcName: "", materializations: [] },
     });
     requestKubernetesMock.mockImplementation(({ url }) => {
-      if (url.includes("/persistentvolumeclaims?")) {
+      if (url.includes("/persistentvolumeclaims/cs-stg-1")) {
         return {
-          ok: true,
-          status: 200,
-          json: () => ({ items: [] }),
+          ok: false,
+          status: 404,
+          text: "not found",
         };
       }
       if (url.includes("/pods?")) {

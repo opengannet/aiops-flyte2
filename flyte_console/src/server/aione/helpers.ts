@@ -9,6 +9,7 @@ import {
   DevelopmentInstanceFormValues,
   normalizeRunName,
 } from "@/components/pages/DevelopmentInstances/utils";
+import { buildCloudStoragePVCName } from "@/server/cloud-storage/naming";
 
 export const DEFAULT_AIONE_INTERNAL_ORG = "aione";
 export const DEFAULT_AIONE_STORAGE_CLASS = "bj1-ebs";
@@ -250,7 +251,7 @@ export function buildAioneInstanceValues({
       const id = requiredString(datastore.id, "datastores.id");
       return {
         cloudStorageId: id,
-        pvcName: buildStablePVCName(sourceBaseName, id),
+        pvcName: buildCloudStoragePVCName(id),
         storageClass: defaultStorageClass,
         size: `${positiveNumber(datastore.size, 1, "datastores.size")}Gi`,
         mountPath: requiredAbsolutePath(datastore.path, "datastores.path"),
@@ -480,10 +481,6 @@ function buildRestartableRunName(sourceBaseName: string, suffix?: string) {
     normalizeRunName(suffix ?? `r${Math.random().toString(36).slice(2, 5)}`) ||
     "r";
   return buildNameWithSuffix(sourceBaseName, resolvedSuffix, 30);
-}
-
-function buildStablePVCName(sourceBaseName: string, suffix: string) {
-  return buildBoundedName(`${sourceBaseName}-${suffix}`, 253);
 }
 
 function buildNameWithSuffix(base: string, suffix: string, maxLength: number) {

@@ -51,8 +51,8 @@ describe("loadCloudStoragePvcStats", () => {
 
   it("keeps provisioned capacity separate and prefers a complete kubelet sample", async () => {
     requestKubernetesMock.mockImplementation(({ url }) => {
-      if (url.includes("persistentvolumeclaims?")) {
-        return response({ items: [pvc("data", "flyte", "pv-data")] });
+      if (url.includes("persistentvolumeclaims/cs-stg-1")) {
+        return response(pvc("cs-stg-1", "flyte", "pv-data"));
       }
       if (url.includes("/pods?")) {
         return response({
@@ -62,7 +62,7 @@ describe("loadCloudStoragePvcStats", () => {
               spec: {
                 nodeName: "node-a",
                 volumes: [
-                  { persistentVolumeClaim: { claimName: "data" } },
+                  { persistentVolumeClaim: { claimName: "cs-stg-1" } },
                 ],
               },
               status: { phase: "Running" },
@@ -77,7 +77,7 @@ describe("loadCloudStoragePvcStats", () => {
               podRef: { name: "writer", namespace: "flyte" },
               volume: [
                 {
-                  pvcRef: { name: "data", namespace: "flyte" },
+                  pvcRef: { name: "cs-stg-1", namespace: "flyte" },
                   capacityBytes: 1_000,
                   usedBytes: 250,
                   availableBytes: 700,
@@ -120,8 +120,8 @@ describe("loadCloudStoragePvcStats", () => {
 
   it("discards an incomplete kubelet sample and uses one complete Hawk sample", async () => {
     requestKubernetesMock.mockImplementation(({ url }) => {
-      if (url.includes("persistentvolumeclaims?")) {
-        return response({ items: [pvc("data", "flyte", "pv-data")] });
+      if (url.includes("persistentvolumeclaims/cs-stg-1")) {
+        return response(pvc("cs-stg-1", "flyte", "pv-data"));
       }
       if (url.includes("/pods?")) {
         return response({
@@ -131,7 +131,7 @@ describe("loadCloudStoragePvcStats", () => {
               spec: {
                 nodeName: "node-a",
                 volumes: [
-                  { persistentVolumeClaim: { claimName: "data" } },
+                  { persistentVolumeClaim: { claimName: "cs-stg-1" } },
                 ],
               },
               status: { phase: "Running" },
@@ -146,7 +146,7 @@ describe("loadCloudStoragePvcStats", () => {
               podRef: { name: "writer", namespace: "flyte" },
               volume: [
                 {
-                  pvcRef: { name: "data", namespace: "flyte" },
+                  pvcRef: { name: "cs-stg-1", namespace: "flyte" },
                   capacityBytes: 1_000,
                   usedBytes: 999,
                 },
@@ -192,13 +192,10 @@ describe("loadCloudStoragePvcStats", () => {
     });
   });
 
-  it("keeps same-name PVCs in different namespaces distinct and lists pods in both namespaces", async () => {
+  it("ignores legacy materializations in other namespaces when the canonical PVC exists", async () => {
     requestKubernetesMock.mockImplementation(({ url }) => {
-      if (url.includes("namespaces/team-a/persistentvolumeclaims?")) {
-        return response({ items: [pvc("data", "team-a", "pv-a")] });
-      }
-      if (url.includes("namespaces/team-b/persistentvolumeclaims/data")) {
-        return response(pvc("data", "team-b", "pv-b"));
+      if (url.includes("namespaces/team-a/persistentvolumeclaims/cs-stg-1")) {
+        return response(pvc("cs-stg-1", "team-a", "pv-a"));
       }
       if (url.includes("/pods?")) {
         const namespace = url.includes("namespaces/team-a/")
@@ -210,7 +207,7 @@ describe("loadCloudStoragePvcStats", () => {
               metadata: { name: `pod-${namespace}`, namespace },
               spec: {
                 volumes: [
-                  { persistentVolumeClaim: { claimName: "data" } },
+                  { persistentVolumeClaim: { claimName: "cs-stg-1" } },
                 ],
               },
               status: { phase: "Running" },
@@ -238,29 +235,25 @@ describe("loadCloudStoragePvcStats", () => {
     );
 
     expect(result.pvcs.map(({ namespace, name }) => `${namespace}/${name}`))
-      .toEqual(["team-a/data", "team-b/data"]);
+      .toEqual(["team-a/cs-stg-1"]);
     expect(
       requestKubernetesMock.mock.calls
         .map(([input]) => input.url)
         .filter((url) => url.includes("/pods?")),
-    ).toEqual([
-      expect.stringContaining("namespaces/team-a/pods?"),
-      expect.stringContaining("namespaces/team-b/pods?"),
-    ]);
+    ).toEqual([expect.stringContaining("namespaces/team-a/pods?")]);
     expect(loadHawkHistory.mock.calls.map(([input]) => input.volumeName))
-      .toEqual(["pv-a", "pv-b"]);
+      .toEqual(["pv-a"]);
     expect(result.pvcs.map(({ mountedBy }) => mountedBy)).toEqual([
       ["pod-team-a"],
-      ["pod-team-b"],
     ]);
   });
 
   it("returns unavailable without querying by PVC name when the PV name is absent", async () => {
     requestKubernetesMock.mockImplementation(({ url }) => {
-      if (url.includes("persistentvolumeclaims?")) {
-        const item = pvc("data", "flyte", "");
+      if (url.includes("persistentvolumeclaims/cs-stg-1")) {
+        const item = pvc("cs-stg-1", "flyte", "");
         delete item.spec.volumeName;
-        return response({ items: [item] });
+        return response(item);
       }
       if (url.includes("/pods?")) {
         return response({ items: [] });
@@ -292,17 +285,13 @@ describe("loadCloudStoragePvcStats", () => {
       statsSource: "unavailable",
       statsTime: null,
     });
-    expect(result.warnings[0]).toContain("flyte/data");
+    expect(result.warnings[0]).toContain("flyte/cs-stg-1");
   });
 
-  it("limits concurrent Hawk history lookups to three PVCs", async () => {
+  it("loads Hawk history only for the canonical PVC", async () => {
     requestKubernetesMock.mockImplementation(({ url }) => {
-      if (url.includes("persistentvolumeclaims?")) {
-        return response({
-          items: [1, 2, 3, 4].map((id) =>
-            pvc(`data-${id}`, "flyte", `pv-${id}`),
-          ),
-        });
+      if (url.includes("persistentvolumeclaims/cs-stg-1")) {
+        return response(pvc("cs-stg-1", "flyte", "pv-1"));
       }
       if (url.includes("/pods?")) {
         return response({ items: [] });
@@ -331,7 +320,7 @@ describe("loadCloudStoragePvcStats", () => {
       { loadHawkHistory },
     );
 
-    expect(loadHawkHistory).toHaveBeenCalledTimes(4);
-    expect(maximumActive).toBe(3);
+    expect(loadHawkHistory).toHaveBeenCalledTimes(1);
+    expect(maximumActive).toBe(1);
   });
 });

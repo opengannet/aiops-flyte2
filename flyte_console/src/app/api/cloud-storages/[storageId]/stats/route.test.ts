@@ -38,12 +38,12 @@ const cloudStorage = {
   sizeGb: 2,
   storageClassName: "bj1-ebs",
   targetNamespace: "flyte",
-  pvcName: "pvc-1",
+  pvcName: "legacy-pvc",
   creator: "external-system",
   materializations: [
     {
       targetNamespace: "flyte",
-      pvcName: "pvc-1",
+      pvcName: "legacy-pvc",
     },
   ],
 };
@@ -60,8 +60,28 @@ describe("cloud storage stats route", () => {
     });
   });
 
-  it("returns PVC usage from kubelet volume stats", async () => {
+  it("returns only the canonical PVC even when legacy PVCs share its labels", async () => {
     requestKubernetesMock.mockImplementation(({ url }) => {
+      if (url.endsWith("/persistentvolumeclaims/cs-stg-1")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => ({
+            metadata: {
+              name: "cs-stg-1",
+              namespace: "flyte",
+            },
+            spec: {
+              resources: { requests: { storage: "2Gi" } },
+              storageClassName: "bj1-ebs",
+            },
+            status: {
+              phase: "Bound",
+              capacity: { storage: "2Gi" },
+            },
+          }),
+        });
+      }
       if (url.includes("/persistentvolumeclaims?")) {
         return Promise.resolve({
           ok: true,
@@ -70,7 +90,7 @@ describe("cloud storage stats route", () => {
             items: [
               {
                 metadata: {
-                  name: "pvc-1",
+                  name: "cs-stg-1",
                   namespace: "flyte",
                 },
                 spec: {
@@ -88,6 +108,10 @@ describe("cloud storage stats route", () => {
                   },
                 },
               },
+              {
+                metadata: { name: "legacy-pvc", namespace: "flyte" },
+                status: { phase: "Bound", capacity: { storage: "2Gi" } },
+              },
             ],
           }),
         });
@@ -103,7 +127,7 @@ describe("cloud storage stats route", () => {
                 spec: {
                   nodeName: "node-a",
                   volumes: [
-                    { persistentVolumeClaim: { claimName: "pvc-1" } },
+                    { persistentVolumeClaim: { claimName: "cs-stg-1" } },
                   ],
                 },
                 status: { phase: "Running" },
@@ -134,7 +158,7 @@ describe("cloud storage stats route", () => {
                     inodes: 65536,
                     inodesFree: 65525,
                     pvcRef: {
-                      name: "pvc-1",
+                      name: "cs-stg-1",
                       namespace: "flyte",
                     },
                   },
@@ -160,7 +184,7 @@ describe("cloud storage stats route", () => {
     expect(body.data.cloudStorage.id).toBe("stg-1");
     expect(body.data.pvcs).toEqual([
       expect.objectContaining({
-        name: "pvc-1",
+        name: "cs-stg-1",
         namespace: "flyte",
         phase: "Bound",
         requestedBytes: 2147483648,
@@ -178,8 +202,35 @@ describe("cloud storage stats route", () => {
     expect(body.data.warnings).toEqual([]);
   });
 
-  it("keeps PVC rows when kubelet usage stats are unavailable", async () => {
+  it("falls back only to the recorded legacy PVC when the canonical PVC is missing", async () => {
     requestKubernetesMock.mockImplementation(({ url }) => {
+      if (url.endsWith("/persistentvolumeclaims/cs-stg-1")) {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          text: "not found",
+        });
+      }
+      if (url.endsWith("/persistentvolumeclaims/legacy-pvc")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => ({
+            metadata: {
+              name: "legacy-pvc",
+              namespace: "flyte",
+            },
+            spec: {
+              resources: { requests: { storage: "2Gi" } },
+              storageClassName: "bj1-ebs",
+            },
+            status: {
+              phase: "Bound",
+              capacity: { storage: "2Gi" },
+            },
+          }),
+        });
+      }
       if (url.includes("/persistentvolumeclaims?")) {
         return Promise.resolve({
           ok: true,
@@ -188,7 +239,7 @@ describe("cloud storage stats route", () => {
             items: [
               {
                 metadata: {
-                  name: "pvc-1",
+                  name: "legacy-pvc",
                   namespace: "flyte",
                 },
                 spec: {
@@ -231,7 +282,7 @@ describe("cloud storage stats route", () => {
 
     expect(response.status).toBe(200);
     expect(body.data.pvcs[0]).toMatchObject({
-      name: "pvc-1",
+      name: "legacy-pvc",
       usedBytes: null,
       filesystemCapacityBytes: null,
       availableBytes: null,
@@ -242,7 +293,8 @@ describe("cloud storage stats route", () => {
       nodeName: "",
     });
     expect(body.data.warnings).toEqual([
-      "PVC flyte/pvc-1 has no PV name; usage is unavailable",
+      "Canonical PVC cs-stg-1 was not found; using recorded legacy PVC legacy-pvc",
+      "PVC flyte/legacy-pvc has no PV name; usage is unavailable",
     ]);
   });
 });

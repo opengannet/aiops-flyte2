@@ -93,7 +93,7 @@ describe("aione external instance helpers", () => {
     expect(mapped.codeRepositoriesWithTokens[0].token).toBe("repo-token");
     expect(mapped.values.cloudStorageMounts?.[0]).toMatchObject({
       cloudStorageId: "stg-2i63j4q0z319cb63mw90qnt2mt",
-      pvcName: "ins-og2bgwm130xq3o6uk3h4956la6-stg-2i63j4q0z319cb63mw90qnt2mt",
+      pvcName: "cs-stg-2i63j4q0z319cb63mw90qnt2mt",
       storageClass: "bj1-ebs",
       size: "2Gi",
       mountPath: "/data/mystore2",
@@ -133,6 +133,98 @@ describe("aione external instance helpers", () => {
       second.values.codeRepositorySecretName,
     );
     expect(first.runName.length).toBeLessThanOrEqual(30);
+  });
+
+  it("reuses the canonical PVC across different instances for the same datastore", () => {
+    const first = buildAioneInstanceValues({
+      payload: basePayload,
+      nodePort: 31000,
+      internalOrg: "aione",
+      defaultStorageClass: "bj1-ebs",
+      defaultAuthorizedKey: "",
+      runNameSuffix: "r1",
+    });
+    const second = buildAioneInstanceValues({
+      payload: { ...basePayload, id: "another-instance" },
+      nodePort: 31002,
+      internalOrg: "aione",
+      defaultStorageClass: "bj1-ebs",
+      defaultAuthorizedKey: "",
+      runNameSuffix: "r1",
+    });
+
+    expect(first.values.cloudStorageMounts?.[0]?.pvcName).toBe(
+      "cs-stg-2i63j4q0z319cb63mw90qnt2mt",
+    );
+    expect(second.values.cloudStorageMounts?.[0]?.pvcName).toBe(
+      "cs-stg-2i63j4q0z319cb63mw90qnt2mt",
+    );
+  });
+
+  it("uses different canonical PVCs for different datastore ids", () => {
+    const first = buildAioneInstanceValues({
+      payload: basePayload,
+      nodePort: 31000,
+      internalOrg: "aione",
+      defaultStorageClass: "bj1-ebs",
+      defaultAuthorizedKey: "",
+      runNameSuffix: "r1",
+    });
+    const second = buildAioneInstanceValues({
+      payload: {
+        ...basePayload,
+        datastores: [
+          { id: "stg-another", path: "/data/another", size: 2 },
+        ],
+      },
+      nodePort: 31002,
+      internalOrg: "aione",
+      defaultStorageClass: "bj1-ebs",
+      defaultAuthorizedKey: "",
+      runNameSuffix: "r1",
+    });
+
+    expect(first.values.cloudStorageMounts?.[0]?.pvcName).toBe(
+      "cs-stg-2i63j4q0z319cb63mw90qnt2mt",
+    );
+    expect(second.values.cloudStorageMounts?.[0]?.pvcName).toBe(
+      "cs-stg-another",
+    );
+  });
+
+  it("rejects datastore ids that are not canonical DNS names", () => {
+    expect(() =>
+      buildAioneInstanceValues({
+        payload: {
+          ...basePayload,
+          datastores: [{ id: "Store_A", path: "/data/store", size: 2 }],
+        },
+        nodePort: 31000,
+        internalOrg: "aione",
+        defaultStorageClass: "bj1-ebs",
+        defaultAuthorizedKey: "",
+        runNameSuffix: "r1",
+      }),
+    ).toThrow("datastore id must be a canonical DNS name");
+  });
+
+  it("rejects datastore ids longer than a Kubernetes label value", () => {
+    expect(() =>
+      buildAioneInstanceValues({
+        payload: {
+          ...basePayload,
+          datastores: [
+            {
+              id: `stg-${"a".repeat(60)}`,
+              path: "/data/store",
+              size: 1,
+            },
+          ],
+        },
+        nodePort: 31001,
+        runNameSuffix: "r1",
+      }),
+    ).toThrow("datastore id must be a canonical DNS name");
   });
 
   it("uses OWN image fields and the default authorized key when provided", () => {
