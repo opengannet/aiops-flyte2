@@ -91,7 +91,7 @@ export function CloudStorageListPage() {
       setItems(cloudStorages);
       setMounts(null);
       try {
-        const mountsResponse = await fetch("/api/cloud-storages/mounts", {
+        const mountsResponse = await fetch("/v2/api/cloud-storages/mounts", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ storageIds: cloudStorages.map(idKey) }),

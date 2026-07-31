@@ -49,15 +49,16 @@ describe("CloudStorageListPage live mount status", () => {
   });
 
   it("shows running Pod usage instead of the materialization namespace", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          data: { mounts: { "stg-used": ["writer-pod"], "stg-unused": [] } },
+        }),
+    });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: { mounts: { "stg-used": ["writer-pod"], "stg-unused": [] } },
-          }),
-      }),
+      fetchMock,
     );
 
     render(<CloudStorageListPage />);
@@ -71,6 +72,10 @@ describe("CloudStorageListPage live mount status", () => {
     expect(screen.getByText("writer-pod")).toBeVisible();
     expect(screen.getByText("external-api")).toBeVisible();
     expect(screen.getByText("external-system")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/v2/api/cloud-storages/mounts",
+      expect.any(Object),
+    );
   });
 
   it("shows unknown instead of unused when the live query fails", async () => {
