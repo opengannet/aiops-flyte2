@@ -109,7 +109,8 @@ export async function getAioneExternalMonitor(
     throw statusError("run action not found", 404);
   }
 
-  const end = nowSeconds();
+  const step = resolveMonitorStepSeconds(query.periodSeconds);
+  const end = Math.floor(nowSeconds() / step) * step;
   const params: HawkRunMetricsParams = {
     org: runId.org,
     project: runId.project,
@@ -118,7 +119,7 @@ export async function getAioneExternalMonitor(
     actionId,
     start: end - query.periodSeconds,
     end,
-    step: resolveMonitorStepSeconds(query.periodSeconds),
+    step,
   };
   const result = await queryMetricSeries(
     params,
