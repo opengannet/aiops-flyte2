@@ -16,6 +16,7 @@ import type { ReactNode } from "react";
 import {
   formatBytes,
   formatNullablePercent,
+  formatStatsSource,
 } from "@/components/pages/CloudStorage/utils";
 
 type DetailParams = {
@@ -51,15 +52,14 @@ type CloudStorageStats = {
     storageClassName: string;
     requestedBytes: number | null;
     capacityBytes: number | null;
+    filesystemCapacityBytes: number | null;
     usedBytes: number | null;
     availableBytes: number | null;
     usagePercent: number | null;
-    inodesUsed: number | null;
-    inodes: number | null;
-    inodesFree: number | null;
     mountedBy: string[];
     nodeName: string;
-    statsTime: string;
+    statsSource: "kubelet" | "hawk_history" | "unavailable";
+    statsTime: string | null;
   }>;
   warnings: string[];
 };
@@ -255,9 +255,10 @@ export function CloudStorageDetailPage() {
                         <th className="px-3 py-3">已用</th>
                         <th className="px-3 py-3">可用</th>
                         <th className="px-3 py-3">使用率</th>
+                        <th className="px-3 py-3">数据来源</th>
                         <th className="px-3 py-3">挂载 Pod</th>
                         <th className="px-3 py-3">节点</th>
-                        <th className="px-3 py-3">采集时间</th>
+                        <th className="px-3 py-3">最后观测时间</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -282,9 +283,17 @@ export function CloudStorageDetailPage() {
                           </td>
                           <td className="px-3 py-3">
                             {formatBytes(pvc.availableBytes)}
+                            {pvc.statsSource === "hawk_history" ? (
+                              <div className="text-xs text-zinc-500">
+                                总量−已用推算
+                              </div>
+                            ) : null}
                           </td>
                           <td className="px-3 py-3">
                             {formatNullablePercent(pvc.usagePercent)}
+                          </td>
+                          <td className="px-3 py-3 whitespace-nowrap">
+                            {formatStatsSource(pvc.statsSource)}
                           </td>
                           <td className="px-3 py-3">
                             {pvc.mountedBy.length
@@ -300,7 +309,7 @@ export function CloudStorageDetailPage() {
                       {!stats?.pvcs.length && (
                         <tr>
                           <td
-                            colSpan={11}
+                            colSpan={12}
                             className="px-3 py-8 text-center text-zinc-500"
                           >
                             没有要显示的数据。

@@ -3,6 +3,7 @@ import {
   buildCloudStorageDetailHref,
   formatBytes,
   formatNullablePercent,
+  formatStatsSource,
 } from "./utils";
 
 describe("CloudStorage UI utils", () => {
@@ -17,5 +18,11 @@ describe("CloudStorage UI utils", () => {
     expect(formatBytes(null)).toBe("未知");
     expect(formatNullablePercent(0.05)).toBe("0.05%");
     expect(formatNullablePercent(null)).toBe("未知");
+  });
+
+  it("labels real-time, Hawk history, and unavailable stats sources", () => {
+    expect(formatStatsSource("kubelet")).toBe("实时");
+    expect(formatStatsSource("hawk_history")).toBe("Hawk 历史");
+    expect(formatStatsSource("unavailable")).toBe("未知");
   });
 });

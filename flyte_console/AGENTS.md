@@ -93,8 +93,12 @@ return errorEnvelope(statusError("id is required", 400));
 - 外部 clear 接口使用 `DELETE /v2/api/aione/{type}/{id}/clear`。`type` 支持
   `instance`、`task`、`store`；其中 run/status/stop 仍只支持 `instance` 和 `task`。
 - 外部云存储容量接口使用 `GET /v2/api/aione/pvc/{id}/size`，`id` 是云存储 id。
-  成功时返回 `{ status: 200, data: { used, provisioned } }`，单位为字节。
-  如果 kubelet 没有返回 `usedBytes`，`used` 按约定返回 `0`。
+  成功时返回
+  `{ status: 200, data: { used, provisioned, available, usagePercent, statsSource, statsTime } }`。
+  `provisioned` 始终汇总 PVC provisioned 容量；用量优先使用完整 kubelet statfs，
+  不完整或未挂载时整组回退 Hawk 最后完整历史样本。任一 PVC 无完整样本时，
+  `used`、`available`、`usagePercent`、`statsTime` 返回 `null`，不得返回假 `0`。
+  Hawk 的 `available` 是 `filesystem size - used` 推导值。
 - 外部 GPU 使用量接口使用 `GET /v2/api/aione/gpus?keys=<gpu-resource-keys>`，
   `keys` 是逗号拼接的 Kubernetes GPU resource key 或 GPU 型号标签 key。成功时返回
   `{ status: 200, data: { [key]: { total, allocated } } }`。`total` 来自全集群

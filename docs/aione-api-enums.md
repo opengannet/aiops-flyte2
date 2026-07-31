@@ -136,7 +136,11 @@ GET /v2/api/aione/pvc/{id}/size
   "status": 200,
   "data": {
     "used": 123,
-    "provisioned": 456
+    "provisioned": 456,
+    "available": 333,
+    "usagePercent": 26.97,
+    "statsSource": "hawk_history",
+    "statsTime": "2026-07-30T08:00:00.000Z"
   }
 }
 ```
@@ -145,10 +149,17 @@ GET /v2/api/aione/pvc/{id}/size
 
 | 字段 | 含义 |
 | --- | --- |
-| `used` | PVC 已使用字节数。优先来自 kubelet volume stats 的 `usedBytes`；如果 kubelet 没有返回用量，按约定返回 `0`。 |
+| `used` | PVC 已使用字节数。完整 kubelet statfs 优先，否则使用 Hawk 最近历史完整样本；无完整样本时为 `null`。 |
 | `provisioned` | PVC 已分配字节数。优先来自 PVC `status.capacity.storage`，没有时使用 PVC request storage。 |
+| `available` | PVC 可用字节数。kubelet 来源使用直接值；Hawk 历史来源使用 `filesystem size - used` 推导；无完整样本时为 `null`。 |
+| `usagePercent` | `sum(used) / sum(filesystem capacity) × 100`；无完整样本时为 `null`。 |
+| `statsSource` | `kubelet`、`hawk_history`、`mixed` 或 `unavailable`。 |
+| `statsTime` | 全部 PVC 数据可用时取最早的最后观测时间，否则为 `null`。Hawk 时间是 Prometheus range query 的最后观测步点近似值。 |
 
-如果同一个云存储 id 对应多个 PVC，`used` 和 `provisioned` 都返回所有匹配 PVC 的字节数总和。
+如果同一个云存储 id 对应多个 PVC，`provisioned` 始终汇总 PVC provisioned
+容量。只有所有 PVC 都有完整用量与文件系统容量时，才汇总 `used` 和
+`available`；任一 PVC 不可用时，所有聚合用量字段及 `statsTime` 都返回 `null`。
+接口不会为未挂载 PVC 创建临时探测 Pod。
 
 ## GPU 使用量接口
 

@@ -138,6 +138,8 @@ spec:
               value: http://flyte-binary-http:8090
             - name: HAWK_API_URL
               value: https://hawk.ops.fzyun.io
+            - name: HAWK_PVC_HISTORY_DAYS
+              value: "30"
             - name: HAWK_API_KEY
               valueFrom:
                 secretKeyRef:

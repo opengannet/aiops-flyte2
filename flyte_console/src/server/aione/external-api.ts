@@ -83,6 +83,7 @@ import {
   buildWorkspaceLabelSelector,
 } from "@/server/development-instances/delete";
 import { statusError } from "@/server/http/response";
+import type { PvcStats } from "@/server/cloud-storage/stats";
 import {
   AIONE_RUNTIME_NAMESPACE,
   type AioneInstanceAccessInfo,
@@ -333,14 +334,70 @@ export async function getAioneExternalPvcSize(sourcePvcId: string) {
     throw statusError("cloud storage PVC not found", 404);
   }
 
-  return pvcs.reduce(
-    (totals, pvc) => ({
-      used: totals.used + (pvc.usedBytes ?? 0),
-      provisioned:
-        totals.provisioned + (pvc.capacityBytes ?? pvc.requestedBytes ?? 0),
-    }),
-    { used: 0, provisioned: 0 },
+  return aggregatePvcStats(pvcs);
+}
+
+export function aggregatePvcStats(pvcs: PvcStats[]) {
+  const provisioned = pvcs.reduce(
+    (total, pvc) =>
+      total + (pvc.capacityBytes ?? pvc.requestedBytes ?? 0),
+    0,
   );
+  const allUsageAvailable = pvcs.every(
+    (pvc) =>
+      pvc.filesystemCapacityBytes !== null &&
+      pvc.filesystemCapacityBytes > 0 &&
+      pvc.usedBytes !== null &&
+      pvc.availableBytes !== null &&
+      pvc.statsSource !== "unavailable",
+  );
+  if (!allUsageAvailable) {
+    return {
+      used: null,
+      provisioned,
+      available: null,
+      usagePercent: null,
+      statsSource: "unavailable" as const,
+      statsTime: null,
+    };
+  }
+
+  const used = pvcs.reduce(
+    (total, pvc) => total + (pvc.usedBytes ?? 0),
+    0,
+  );
+  const available = pvcs.reduce(
+    (total, pvc) => total + (pvc.availableBytes ?? 0),
+    0,
+  );
+  const filesystemCapacity = pvcs.reduce(
+    (total, pvc) => total + (pvc.filesystemCapacityBytes ?? 0),
+    0,
+  );
+  const sources = new Set(pvcs.map((pvc) => pvc.statsSource));
+  const statsSource =
+    sources.size > 1
+      ? ("mixed" as const)
+      : pvcs[0].statsSource === "hawk_history"
+        ? ("hawk_history" as const)
+        : ("kubelet" as const);
+  const observedTimes = pvcs.map((pvc) => pvc.statsTime);
+
+  return {
+    used,
+    provisioned,
+    available,
+    usagePercent:
+      Math.round((used / filesystemCapacity) * 100 * 100) / 100,
+    statsSource,
+    statsTime: observedTimes.every(
+      (value): value is string => value !== null,
+    )
+      ? observedTimes.reduce((earliest, value) =>
+          value < earliest ? value : earliest,
+        )
+      : null,
+  };
 }
 
 async function createInstanceRun(payload: unknown) {

@@ -3,6 +3,10 @@
  */
 
 import type { CloudStorage } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_definition_pb";
+import {
+  loadHawkPvcHistory,
+  type HawkPvcHistory,
+} from "@/server/cloud-storage/hawk-history";
 import { statusError } from "@/server/http/response";
 import { requestKubernetes } from "@/server/kubernetes/client";
 
@@ -13,32 +17,42 @@ export type PvcStats = {
   storageClassName: string;
   requestedBytes: number | null;
   capacityBytes: number | null;
+  filesystemCapacityBytes: number | null;
   usedBytes: number | null;
   availableBytes: number | null;
   usagePercent: number | null;
-  inodesUsed: number | null;
-  inodes: number | null;
-  inodesFree: number | null;
   mountedBy: string[];
   nodeName: string;
-  statsTime: string;
+  statsSource: "kubelet" | "hawk_history" | "unavailable";
+  statsTime: string | null;
 };
 
-export async function loadCloudStoragePvcStats({
-  apiOrigin,
-  namespace,
-  token,
-  ca,
-  storageId,
-  cloudStorage,
-}: {
-  apiOrigin: string;
-  namespace: string;
-  token: string;
-  ca: string;
-  storageId: string;
-  cloudStorage: CloudStorage;
-}) {
+type LoadCloudStoragePvcStatsDependencies = {
+  loadHawkHistory?: (input: {
+    volumeName: string;
+  }) => Promise<HawkPvcHistory | null>;
+};
+
+export async function loadCloudStoragePvcStats(
+  {
+    apiOrigin,
+    namespace,
+    token,
+    ca,
+    storageId,
+    cloudStorage,
+  }: {
+    apiOrigin: string;
+    namespace: string;
+    token: string;
+    ca: string;
+    storageId: string;
+    cloudStorage: CloudStorage;
+  },
+  dependencies: LoadCloudStoragePvcStatsDependencies = {},
+) {
+  const loadHawkHistory =
+    dependencies.loadHawkHistory ?? loadHawkPvcHistory;
   const warnings: string[] = [];
   const pvcMap = new Map<string, KubernetesPVC>();
   for (const pvc of await listCloudStoragePvcs({
@@ -50,21 +64,24 @@ export async function loadCloudStoragePvcStats({
   })) {
     const name = pvc.metadata?.name?.trim();
     if (name) {
-      pvcMap.set(name, pvc);
+      pvcMap.set(pvcKey(pvc.metadata?.namespace ?? namespace, name), pvc);
     }
   }
   for (const materialization of cloudStorage.materializations) {
     const pvcName = materialization.pvcName?.trim();
-    if (pvcName && !pvcMap.has(pvcName)) {
+    const targetNamespace =
+      materialization.targetNamespace?.trim() || namespace;
+    const key = pvcKey(targetNamespace, pvcName);
+    if (pvcName && !pvcMap.has(key)) {
       const pvc = await getPvcIfPresent({
         apiOrigin,
-        namespace: materialization.targetNamespace || namespace,
+        namespace: targetNamespace,
         token,
         ca,
         pvcName,
       });
       if (pvc) {
-        pvcMap.set(pvcName, pvc);
+        pvcMap.set(key, pvc);
       }
     }
   }
@@ -77,11 +94,32 @@ export async function loadCloudStoragePvcStats({
       pvcName: cloudStorage.pvcName,
     });
     if (pvc) {
-      pvcMap.set(cloudStorage.pvcName, pvc);
+      pvcMap.set(
+        pvcKey(pvc.metadata?.namespace ?? namespace, cloudStorage.pvcName),
+        pvc,
+      );
     }
   }
 
-  const pods = await listPods({ apiOrigin, namespace, token, ca });
+  const pvcNamespaces = Array.from(
+    new Set(
+      Array.from(pvcMap.values()).map(
+        (pvc) => pvc.metadata?.namespace?.trim() || namespace,
+      ),
+    ),
+  );
+  const pods = (
+    await Promise.all(
+      pvcNamespaces.map((pvcNamespace) =>
+        listPods({
+          apiOrigin,
+          namespace: pvcNamespace,
+          token,
+          ca,
+        }),
+      ),
+    )
+  ).flat();
   const mounts = buildPvcMountMap(pods);
   const nodeStats = new Map<string, KubeletSummary | null>();
   for (const mounted of mounts.values()) {
@@ -95,17 +133,25 @@ export async function loadCloudStoragePvcStats({
     }
   }
 
-  return {
-    pvcs: Array.from(pvcMap.values()).map((pvc) =>
+  const pvcs = await mapWithConcurrency(
+    Array.from(pvcMap.values()),
+    3,
+    (pvc) =>
       buildPvcStatsRow({
         pvc,
-        mounted: mounts.get(pvc.metadata?.name ?? ""),
+        mounted: mounts.get(
+          pvcKey(
+            pvc.metadata?.namespace ?? namespace,
+            pvc.metadata?.name ?? "",
+          ),
+        ),
         nodeStats,
         warnings,
+        loadHawkHistory,
       }),
-    ),
-    warnings,
-  };
+  );
+
+  return { pvcs, warnings };
 }
 
 export function normalizeCloudStorage(cloudStorage: CloudStorage) {
@@ -222,13 +268,15 @@ function buildPvcMountMap(pods: KubernetesPod[]) {
       continue;
     }
     const podName = pod.metadata?.name ?? "";
+    const namespace = pod.metadata?.namespace ?? "";
     const nodeName = pod.spec?.nodeName ?? "";
     for (const volume of pod.spec?.volumes ?? []) {
       const claimName = volume.persistentVolumeClaim?.claimName;
       if (!claimName) {
         continue;
       }
-      const current = mounts.get(claimName) ?? {
+      const key = pvcKey(namespace, claimName);
+      const current = mounts.get(key) ?? {
         podNames: [],
         nodeNames: new Set<string>(),
       };
@@ -238,7 +286,7 @@ function buildPvcMountMap(pods: KubernetesPod[]) {
       if (nodeName) {
         current.nodeNames.add(nodeName);
       }
-      mounts.set(claimName, current);
+      mounts.set(key, current);
     }
   }
   return mounts;
@@ -269,17 +317,21 @@ async function getNodeStats({
   return response.json<KubeletSummary>();
 }
 
-function buildPvcStatsRow({
+async function buildPvcStatsRow({
   pvc,
   mounted,
   nodeStats,
   warnings,
+  loadHawkHistory,
 }: {
   pvc: KubernetesPVC;
   mounted?: { podNames: string[]; nodeNames: Set<string> };
   nodeStats: Map<string, KubeletSummary | null>;
   warnings: string[];
-}): PvcStats {
+  loadHawkHistory: NonNullable<
+    LoadCloudStoragePvcStatsDependencies["loadHawkHistory"]
+  >;
+}): Promise<PvcStats> {
   const name = pvc.metadata?.name ?? "";
   const namespace = pvc.metadata?.namespace ?? "";
   const nodeName = Array.from(mounted?.nodeNames ?? [])[0] ?? "";
@@ -289,38 +341,86 @@ function buildPvcStatsRow({
     podNames: mounted?.podNames ?? [],
     nodeStats,
   });
-  if (!usage && !nodeName) {
-    warnings.push(
-      `PVC ${name} is not mounted by a running pod, usage is unavailable`,
-    );
-  }
+  const requestedBytes = parseKubernetesQuantity(
+    pvc.spec?.resources?.requests?.storage,
+  );
   const capacityBytes =
-    toNullableNumber(usage?.capacityBytes) ??
-    parseKubernetesQuantity(pvc.status?.capacity?.storage);
-  const usedBytes = toNullableNumber(usage?.usedBytes);
-  const usagePercent =
-    usedBytes !== null && capacityBytes !== null && capacityBytes > 0
-      ? roundPercent((usedBytes / capacityBytes) * 100)
-      : null;
-
-  return {
+    parseKubernetesQuantity(pvc.status?.capacity?.storage) ??
+    requestedBytes;
+  const base = {
     name,
     namespace,
     phase: pvc.status?.phase ?? "",
     storageClassName: pvc.spec?.storageClassName ?? "",
-    requestedBytes: parseKubernetesQuantity(
-      pvc.spec?.resources?.requests?.storage,
-    ),
+    requestedBytes,
     capacityBytes,
-    usedBytes,
-    availableBytes: toNullableNumber(usage?.availableBytes),
-    usagePercent,
-    inodesUsed: toNullableNumber(usage?.inodesUsed),
-    inodes: toNullableNumber(usage?.inodes),
-    inodesFree: toNullableNumber(usage?.inodesFree),
     mountedBy: mounted?.podNames ?? [],
     nodeName,
-    statsTime: usage?.time ?? "",
+  };
+
+  const kubeletSample = toCompleteKubeletSample(usage);
+  if (kubeletSample) {
+    return {
+      ...base,
+      ...kubeletSample,
+      statsSource: "kubelet",
+    };
+  }
+
+  const volumeName = pvc.spec?.volumeName?.trim() ?? "";
+  if (volumeName) {
+    try {
+      const history = await loadHawkHistory({ volumeName });
+      if (history) {
+        return {
+          ...base,
+          ...history,
+          statsSource: "hawk_history",
+        };
+      }
+      warnings.push(
+        `PVC ${namespace}/${name} has no complete Hawk history sample`,
+      );
+    } catch {
+      warnings.push(`Failed to load Hawk history for PVC ${namespace}/${name}`);
+    }
+  } else {
+    warnings.push(
+      `PVC ${namespace}/${name} has no PV name; usage is unavailable`,
+    );
+  }
+
+  return {
+    ...base,
+    filesystemCapacityBytes: null,
+    usedBytes: null,
+    availableBytes: null,
+    usagePercent: null,
+    statsSource: "unavailable",
+    statsTime: null,
+  };
+}
+
+function toCompleteKubeletSample(usage: KubeletVolumeStats | undefined) {
+  const filesystemCapacityBytes = toNonNegativeNumber(usage?.capacityBytes);
+  const usedBytes = toNonNegativeNumber(usage?.usedBytes);
+  const availableBytes = toNonNegativeNumber(usage?.availableBytes);
+  if (
+    filesystemCapacityBytes === null ||
+    filesystemCapacityBytes <= 0 ||
+    usedBytes === null ||
+    availableBytes === null
+  ) {
+    return null;
+  }
+  return {
+    filesystemCapacityBytes,
+    usedBytes,
+    availableBytes,
+    usagePercent: roundPercent(
+      (usedBytes / filesystemCapacityBytes) * 100,
+    ),
+    statsTime: usage?.time ?? null,
   };
 }
 
@@ -338,6 +438,12 @@ function findPvcUsage({
   const podSet = new Set(podNames);
   for (const summary of nodeStats.values()) {
     for (const pod of summary?.pods ?? []) {
+      if (
+        pod.podRef?.namespace &&
+        pod.podRef.namespace !== namespace
+      ) {
+        continue;
+      }
       if (podSet.size > 0 && !podSet.has(pod.podRef?.name ?? "")) {
         continue;
       }
@@ -385,6 +491,11 @@ function toNullableNumber(value: number | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function toNonNegativeNumber(value: number | undefined) {
+  const result = toNullableNumber(value);
+  return result !== null && result >= 0 ? result : null;
+}
+
 function roundPercent(value: number) {
   return Math.round(value * 100) / 100;
 }
@@ -406,6 +517,7 @@ type KubernetesPVC = {
     namespace?: string;
   };
   spec?: {
+    volumeName?: string;
     storageClassName?: string;
     resources?: {
       requests?: {
@@ -420,6 +532,32 @@ type KubernetesPVC = {
     };
   };
 };
+
+function pvcKey(namespace: string, name: string) {
+  return `${namespace}/${name}`;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index]);
+    }
+  }
+  await Promise.all(
+    Array.from(
+      { length: Math.min(concurrency, items.length) },
+      () => worker(),
+    ),
+  );
+  return results;
+}
 
 type KubernetesPodList = {
   items?: KubernetesPod[];

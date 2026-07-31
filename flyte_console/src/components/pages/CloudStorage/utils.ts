@@ -29,6 +29,18 @@ export function formatBytes(value: number | null | undefined) {
     : `${amount.toFixed(1)} ${units[unitIndex]}`;
 }
 
+export function formatStatsSource(
+  source: "kubelet" | "hawk_history" | "unavailable",
+) {
+  if (source === "kubelet") {
+    return "实时";
+  }
+  if (source === "hawk_history") {
+    return "Hawk 历史";
+  }
+  return "未知";
+}
+
 export function formatNullablePercent(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value)
     ? `${value.toFixed(2)}%`

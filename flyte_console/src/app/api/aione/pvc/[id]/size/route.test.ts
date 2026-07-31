@@ -26,6 +26,9 @@ vi.mock("@/server/kubernetes/client", () => ({
   requestKubernetes: requestKubernetesMock,
 }));
 
+import { aggregatePvcStats } from "@/server/aione/external-api";
+import type { PvcStats } from "@/server/cloud-storage/stats";
+
 const cloudStorage = {
   id: {
     org: "aione",
@@ -101,11 +104,18 @@ function mockPvcUsage({
       };
     }
     if (url.includes("/nodes/node-a/proxy/stats/summary")) {
-      const volume: { usedBytes?: number; capacityBytes: number; pvcRef: {} } =
-        {
-          capacityBytes: 2147483648,
-          pvcRef: { name: "pvc-1", namespace: "flyte" },
-        };
+      const volume: {
+        usedBytes?: number;
+        capacityBytes: number;
+        availableBytes: number;
+        time: string;
+        pvcRef: {};
+      } = {
+        capacityBytes: 2147483648,
+        availableBytes: 2146435072,
+        time: "2026-07-31T01:02:03Z",
+        pvcRef: { name: "pvc-1", namespace: "flyte" },
+      };
       if (resolvedUsedBytes !== undefined) {
         volume.usedBytes = resolvedUsedBytes;
       }
@@ -175,6 +185,10 @@ describe("aione external PVC size route", () => {
       data: {
         used: 1048576,
         provisioned: 2147483648,
+        available: 2146435072,
+        usagePercent: 0.05,
+        statsSource: "kubelet",
+        statsTime: "2026-07-31T01:02:03Z",
       },
     });
   });
@@ -195,7 +209,7 @@ describe("aione external PVC size route", () => {
     );
   });
 
-  it("returns used as 0 when kubelet usage is unavailable", async () => {
+  it("returns nullable usage when no complete sample is available", async () => {
     mockPvcUsage({ usedBytes: undefined });
 
     const { GET } = await import("./route");
@@ -212,8 +226,12 @@ describe("aione external PVC size route", () => {
     expect(body).toEqual({
       status: 200,
       data: {
-        used: 0,
+        used: null,
         provisioned: 2147483648,
+        available: null,
+        usagePercent: null,
+        statsSource: "unavailable",
+        statsTime: null,
       },
     });
   });
@@ -312,5 +330,75 @@ describe("aione external PVC size route", () => {
 
     expect(response.status).toBe(502);
     expect(body).toEqual({ status: 502, message: "api unavailable" });
+  });
+});
+
+describe("external PVC size aggregation", () => {
+  function stats(
+    overrides: Partial<PvcStats> = {},
+  ): PvcStats {
+    return {
+      name: "pvc",
+      namespace: "flyte",
+      phase: "Bound",
+      storageClassName: "bj1-ebs",
+      requestedBytes: 3_000,
+      capacityBytes: 2_000,
+      filesystemCapacityBytes: 1_000,
+      usedBytes: 250,
+      availableBytes: 700,
+      usagePercent: 25,
+      mountedBy: [],
+      nodeName: "",
+      statsSource: "kubelet",
+      statsTime: "2026-07-31T02:00:00Z",
+      ...overrides,
+    };
+  }
+
+  it("uses provisioned capacity separately and aggregates mixed sources by filesystem size", () => {
+    expect(
+      aggregatePvcStats([
+        stats(),
+        stats({
+          capacityBytes: 4_000,
+          filesystemCapacityBytes: 3_000,
+          usedBytes: 750,
+          availableBytes: 2_200,
+          statsSource: "hawk_history",
+          statsTime: "2026-07-31T01:00:00Z",
+        }),
+      ]),
+    ).toEqual({
+      used: 1_000,
+      provisioned: 6_000,
+      available: 2_900,
+      usagePercent: 25,
+      statsSource: "mixed",
+      statsTime: "2026-07-31T01:00:00Z",
+    });
+  });
+
+  it("makes all usage fields unknown when any PVC is unavailable", () => {
+    expect(
+      aggregatePvcStats([
+        stats(),
+        stats({
+          filesystemCapacityBytes: null,
+          usedBytes: null,
+          availableBytes: null,
+          usagePercent: null,
+          statsSource: "unavailable",
+          statsTime: null,
+        }),
+      ]),
+    ).toEqual({
+      used: null,
+      provisioned: 4_000,
+      available: null,
+      usagePercent: null,
+      statsSource: "unavailable",
+      statsTime: null,
+    });
   });
 });

@@ -1,4 +1,9 @@
-import { statusError } from "@/server/http/response";
+import {
+  escapePrometheusLabelValue,
+  queryHawkRange,
+  type HawkPrometheusMatrixData as PrometheusMatrixData,
+  type HawkQueryRangeInput,
+} from "@/server/hawk/client";
 import {
   buildHawkContainerId,
   resolveRunTargets,
@@ -84,12 +89,9 @@ export type HawkRunMetricSeriesResult = {
 };
 
 export type HawkRunMetricsDependencies = HawkRunTargetDependencies & {
-  queryHawkRange?: (input: {
-    query: string;
-    start: number;
-    end: number;
-    step: number;
-  }) => Promise<PrometheusMatrixData>;
+  queryHawkRange?: (
+    input: HawkQueryRangeInput,
+  ) => Promise<PrometheusMatrixData>;
 };
 
 const GPU_UUID_DISCOVERY_QUERY = (containerId: string) =>
@@ -340,65 +342,3 @@ function parseMetricPoints(values: Array<[number | string, string]>) {
     })
     .sort((a, b) => a.timestamp - b.timestamp);
 }
-
-async function queryHawkRange({
-  query,
-  start,
-  end,
-  step,
-}: {
-  query: string;
-  start: number;
-  end: number;
-  step: number;
-}): Promise<PrometheusMatrixData> {
-  const hawkUrl = process.env.HAWK_API_URL?.trim();
-  const apiKey = process.env.HAWK_API_KEY?.trim();
-  if (!hawkUrl) {
-    throw statusError("HAWK_API_URL is not configured", 503);
-  }
-  if (!apiKey) {
-    throw statusError("HAWK_API_KEY is not configured", 503);
-  }
-
-  const url = new URL("/api/v1/query_range", trimTrailingSlash(hawkUrl));
-  url.searchParams.set("query", query);
-  url.searchParams.set("start", String(start));
-  url.searchParams.set("end", String(end));
-  url.searchParams.set("step", String(step));
-
-  const response = await fetch(url, {
-    headers: { "X-API-Key": apiKey },
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw statusError(`Hawk query failed with HTTP ${response.status}`, 502);
-  }
-  const body = (await response.json()) as PrometheusQueryRangeResponse;
-  if (body.status !== "success") {
-    throw statusError(body.error || "Hawk query failed", 502);
-  }
-  return body.data ?? { resultType: "matrix", result: [] };
-}
-
-function escapePrometheusLabelValue(value: string) {
-  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-}
-
-function trimTrailingSlash(value: string) {
-  return value.replace(/\/+$/, "");
-}
-
-type PrometheusQueryRangeResponse = {
-  status?: string;
-  error?: string;
-  data?: PrometheusMatrixData;
-};
-
-type PrometheusMatrixData = {
-  resultType?: string;
-  result?: Array<{
-    metric?: Record<string, string>;
-    values?: Array<[number | string, string]>;
-  }>;
-};

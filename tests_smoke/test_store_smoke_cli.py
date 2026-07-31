@@ -75,14 +75,34 @@ class StoreSmokeCliTests(unittest.TestCase):
             store_size_smoke.urllib.request,
             "urlopen",
             return_value=FakeResponse(
-                {"status": 200, "data": {"used": 123, "provisioned": 456}},
+                {
+                    "status": 200,
+                    "data": {
+                        "used": 123,
+                        "provisioned": 456,
+                        "available": 333,
+                        "usagePercent": 26.97,
+                        "statsSource": "hawk_history",
+                        "statsTime": "2026-07-30T08:00:00.000Z",
+                    },
+                },
             ),
         ):
             with contextlib.redirect_stdout(output):
                 result = store_size_smoke.get_size("cs/abc")
 
         self.assertEqual(
-            {"status": 200, "data": {"used": 123, "provisioned": 456}},
+            {
+                "status": 200,
+                "data": {
+                    "used": 123,
+                    "provisioned": 456,
+                    "available": 333,
+                    "usagePercent": 26.97,
+                    "statsSource": "hawk_history",
+                    "statsTime": "2026-07-30T08:00:00.000Z",
+                },
+            },
             result,
         )
         self.assertEqual(

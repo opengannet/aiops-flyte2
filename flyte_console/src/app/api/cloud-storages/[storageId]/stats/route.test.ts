@@ -165,9 +165,11 @@ describe("cloud storage stats route", () => {
         phase: "Bound",
         requestedBytes: 2147483648,
         capacityBytes: 2147483648,
+        filesystemCapacityBytes: 2147483648,
         usedBytes: 1048576,
         availableBytes: 2146435072,
         usagePercent: 0.05,
+        statsSource: "kubelet",
         mountedBy: ["pod-a"],
         nodeName: "node-a",
         statsTime: "2026-06-25T02:36:15Z",
@@ -231,13 +233,16 @@ describe("cloud storage stats route", () => {
     expect(body.data.pvcs[0]).toMatchObject({
       name: "pvc-1",
       usedBytes: null,
+      filesystemCapacityBytes: null,
       availableBytes: null,
       usagePercent: null,
+      statsSource: "unavailable",
+      statsTime: null,
       mountedBy: [],
       nodeName: "",
     });
     expect(body.data.warnings).toEqual([
-      "PVC pvc-1 is not mounted by a running pod, usage is unavailable",
+      "PVC flyte/pvc-1 has no PV name; usage is unavailable",
     ]);
   });
 });
