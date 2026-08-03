@@ -49,6 +49,12 @@ const server = http.createServer((req, res) => {
     return
   }
 
+  if (path === '/token' || path.startsWith('/token?')) {
+    req.url = `/v2${path}`
+    proxyRequest(`http://127.0.0.1:${nextPort}`, req, res)
+    return
+  }
+
   if (
     path.startsWith('/flyteidl2.') ||
     path === '/healthz' ||

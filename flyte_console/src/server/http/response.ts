@@ -40,6 +40,13 @@ function errorStatus(error: unknown) {
   if (error instanceof ResponseStatusError) {
     return error.status;
   }
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    typeof (error as { status?: unknown }).status === "number"
+  ) {
+    return (error as { status: number }).status;
+  }
   if (error instanceof ConnectError) {
     if (error.code === Code.NotFound) {
       return 404;

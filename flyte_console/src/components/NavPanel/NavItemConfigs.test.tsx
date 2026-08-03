@@ -17,6 +17,7 @@ describe("default navigation items", () => {
       getUiText("cloudStorage"),
       getUiText("triggers"),
       getUiText("tasks"),
+      getUiText("apiKeys"),
       getUiText("apps"),
     ]);
   });

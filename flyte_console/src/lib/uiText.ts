@@ -4,6 +4,7 @@
 
 export const uiText = {
   actions: "操作",
+  apiKeys: "API密钥",
   addTrigger: "添加触发器",
   apps: "应用",
   associatedTask: "关联任务",
