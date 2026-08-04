@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildLlmTokenName,
   createLlmApiKey,
-  parseLlmTokenRequest,
+  parseLlmApiKeyRequest,
 } from "./token";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -12,31 +12,25 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-describe("parseLlmTokenRequest", () => {
-  it("requires a non-empty model and token", () => {
-    expect(() => parseLlmTokenRequest({ model: "", token: "pat" })).toThrow(
+describe("parseLlmApiKeyRequest", () => {
+  it("requires a non-empty model", () => {
+    expect(() => parseLlmApiKeyRequest({ model: "" })).toThrow(
       "model is required",
-    );
-    expect(() => parseLlmTokenRequest({ model: "model", token: "" })).toThrow(
-      "token is required",
     );
   });
 
   it("rejects comma-separated or control-character model values", () => {
     expect(() =>
-      parseLlmTokenRequest({ model: "model-a,model-b", token: "pat" }),
+      parseLlmApiKeyRequest({ model: "model-a,model-b" }),
     ).toThrow("model must be a single model identifier");
     expect(() =>
-      parseLlmTokenRequest({ model: "model-a\nmodel-b", token: "pat" }),
+      parseLlmApiKeyRequest({ model: "model-a\nmodel-b" }),
     ).toThrow("model must be a single model identifier");
   });
 
-  it("trims model and token values", () => {
-    expect(
-      parseLlmTokenRequest({ model: " model-a ", token: " pat-token " }),
-    ).toEqual({
+  it("trims model values", () => {
+    expect(parseLlmApiKeyRequest({ model: " model-a " })).toEqual({
       model: "model-a",
-      token: "pat-token",
     });
   });
 });
@@ -67,7 +61,23 @@ describe("createLlmApiKey", () => {
     vi.unstubAllEnvs();
   });
 
+  it("requires the configured New API management token", async () => {
+    const fetchMock = vi.fn();
+
+    await expect(
+      createLlmApiKey({
+        model: "model-a",
+        fetchImpl: fetchMock,
+      }),
+    ).rejects.toMatchObject({
+      message: "LLM_KEYS_API_TOKEN is not configured",
+      status: 503,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("creates a model-limited New API token and returns the full sk key", async () => {
+    vi.stubEnv("LLM_KEYS_API_TOKEN", "management-token");
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ success: true, message: "" }))
@@ -91,7 +101,6 @@ describe("createLlmApiKey", () => {
 
     const result = await createLlmApiKey({
       model: "sakamakismile/Qwen3.6-27B-NVFP4",
-      token: "dashboard-token",
       fetchImpl: fetchMock,
       now: () => new Date("2026-08-03T10:11:12.000Z"),
       nameFactory: () => "flyte-abc12345-lk1d4o",
@@ -108,7 +117,7 @@ describe("createLlmApiKey", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          authorization: "Bearer dashboard-token",
+          authorization: "Bearer management-token",
           "content-type": "application/json",
         }),
         body: JSON.stringify({
@@ -126,7 +135,7 @@ describe("createLlmApiKey", () => {
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
-          authorization: "Bearer dashboard-token",
+          authorization: "Bearer management-token",
         }),
       }),
     );
@@ -136,13 +145,14 @@ describe("createLlmApiKey", () => {
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({
-          authorization: "Bearer dashboard-token",
+          authorization: "Bearer management-token",
         }),
       }),
     );
   });
 
   it("does not double-prefix keys that already include sk-", async () => {
+    vi.stubEnv("LLM_KEYS_API_TOKEN", "management-token");
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse({ success: true }))
@@ -159,7 +169,6 @@ describe("createLlmApiKey", () => {
     await expect(
       createLlmApiKey({
         model: "model-a",
-        token: "dashboard-token",
         fetchImpl: fetchMock,
         nameFactory: () => "flyte-name",
       }),
@@ -167,6 +176,7 @@ describe("createLlmApiKey", () => {
   });
 
   it("maps upstream HTML responses to a 502-safe error", async () => {
+    vi.stubEnv("LLM_KEYS_API_TOKEN", "management-token");
     const fetchMock = vi.fn().mockResolvedValue(
       new Response("<html>New API</html>", {
         status: 200,
@@ -177,7 +187,6 @@ describe("createLlmApiKey", () => {
     await expect(
       createLlmApiKey({
         model: "model-a",
-        token: "dashboard-token",
         fetchImpl: fetchMock,
       }),
     ).rejects.toMatchObject({
@@ -187,6 +196,7 @@ describe("createLlmApiKey", () => {
   });
 
   it("surfaces upstream authentication failures as 502 envelope errors", async () => {
+    vi.stubEnv("LLM_KEYS_API_TOKEN", "bad-management-token");
     const fetchMock = vi
       .fn()
       .mockResolvedValue(jsonResponse({ success: false, message: "未登录" }));
@@ -194,7 +204,6 @@ describe("createLlmApiKey", () => {
     await expect(
       createLlmApiKey({
         model: "model-a",
-        token: "bad-dashboard-token",
         fetchImpl: fetchMock,
       }),
     ).rejects.toMatchObject({

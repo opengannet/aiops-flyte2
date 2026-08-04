@@ -26,17 +26,13 @@ describe("ApiKeysPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("submits model and dashboard token to the console API and shows the created key", async () => {
+  it("submits only the model to the console API and shows the created key", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: () =>
         Promise.resolve({
           status: 200,
-          data: {
-            model: "sakamakismile/Qwen3.6-27B-NVFP4",
-            name: "flyte-test",
-            key: "sk-created-key",
-          },
+          data: "sk-created-key",
         }),
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -47,32 +43,17 @@ describe("ApiKeysPage", () => {
       screen.getByLabelText("模型标识"),
       "sakamakismile/Qwen3.6-27B-NVFP4",
     );
-    await userEvent.type(
-      screen.getByLabelText("第三方 API Key"),
-      "external-api-key",
-    );
-    await userEvent.type(
-      screen.getByLabelText("New API 凭证"),
-      "dashboard-token",
-    );
+    expect(screen.queryByLabelText("第三方 API Key")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("New API 凭证")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "创建密钥" }));
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/v2/token",
-      expect.objectContaining({
+      "/v2/api/aione/apikey/sakamakismile/Qwen3.6-27B-NVFP4",
+      {
         method: "POST",
-        headers: {
-          authorization: "Bearer external-api-key",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "sakamakismile/Qwen3.6-27B-NVFP4",
-          token: "dashboard-token",
-        }),
-      }),
+      },
     );
     expect(await screen.findByText("sk-c*********key")).toBeVisible();
-    expect(screen.getByText("flyte-test")).toBeVisible();
 
     await userEvent.click(screen.getByRole("button", { name: "显示密钥" }));
     expect(screen.getByText("sk-created-key")).toBeVisible();
@@ -84,7 +65,7 @@ describe("ApiKeysPage", () => {
       json: () =>
         Promise.resolve({
           status: 200,
-          data: { model: "model-a", name: "flyte-test", key: "sk-created-key" },
+          data: "sk-created-key",
         }),
     }));
     Object.assign(navigator, {
@@ -96,8 +77,6 @@ describe("ApiKeysPage", () => {
     render(<ApiKeysPage />);
 
     await userEvent.type(screen.getByLabelText("模型标识"), "model-a");
-    await userEvent.type(screen.getByLabelText("第三方 API Key"), "external");
-    await userEvent.type(screen.getByLabelText("New API 凭证"), "dashboard");
     await userEvent.click(screen.getByRole("button", { name: "创建密钥" }));
     await userEvent.click(await screen.findByRole("button", { name: "复制密钥" }));
 

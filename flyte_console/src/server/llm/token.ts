@@ -10,15 +10,13 @@ type FetchLike = typeof fetch;
 
 type CreateLlmApiKeyInput = {
   model: string;
-  token: string;
   fetchImpl?: FetchLike;
   now?: () => Date;
   nameFactory?: (model: string, now: Date) => string;
 };
 
-export type LlmTokenRequest = {
+export type LlmApiKeyRequest = {
   model: string;
-  token: string;
 };
 
 export type CreatedLlmApiKey = {
@@ -46,13 +44,12 @@ type NewApiTokenKeyData = {
   key?: string;
 };
 
-export function parseLlmTokenRequest(value: unknown): LlmTokenRequest {
+export function parseLlmApiKeyRequest(value: unknown): LlmApiKeyRequest {
   if (!isRecord(value)) {
     throw new Error("request body must be a JSON object");
   }
   const model = stringField(value.model, "model");
-  const token = stringField(value.token, "token");
-  return { model, token };
+  return { model };
 }
 
 export function buildLlmTokenName(
@@ -67,16 +64,16 @@ export function buildLlmTokenName(
 
 export async function createLlmApiKey({
   model,
-  token,
   fetchImpl = fetch,
   now = () => new Date(),
   nameFactory = buildLlmTokenName,
 }: CreateLlmApiKeyInput): Promise<CreatedLlmApiKey> {
-  const parsed = parseLlmTokenRequest({ model, token });
+  const parsed = parseLlmApiKeyRequest({ model });
   const origin = getLlmKeysApiOrigin();
+  const token = getLlmKeysApiToken();
   const name = nameFactory(parsed.model, now());
   const authHeaders = {
-    authorization: `Bearer ${parsed.token}`,
+    authorization: `Bearer ${token}`,
   };
 
   await requestNewApi<unknown>(fetchImpl, `${origin}/api/token/`, {
@@ -138,6 +135,14 @@ function getLlmKeysApiOrigin() {
   const origin =
     process.env.LLM_KEYS_API_ORIGIN?.trim() || DEFAULT_LLM_KEYS_API_ORIGIN;
   return origin.replace(/\/+$/g, "");
+}
+
+function getLlmKeysApiToken() {
+  const token = process.env.LLM_KEYS_API_TOKEN?.trim() ?? "";
+  if (!token) {
+    throw statusError("LLM_KEYS_API_TOKEN is not configured", 503);
+  }
+  return token;
 }
 
 async function requestNewApi<T>(

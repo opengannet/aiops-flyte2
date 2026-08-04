@@ -11,7 +11,6 @@ cat >"$TMP_DIR/curl" <<'EOF'
 printf '%s\n' "$@" >"$TEST_TMP_DIR/curl.args"
 printf '{"success":true,"data":"generated-pat-value"}\n'
 EOF
-
 cat >"$TMP_DIR/kubectl" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@" >>"$TEST_TMP_DIR/kubectl.args"
@@ -27,19 +26,16 @@ chmod +x "$TMP_DIR/curl" "$TMP_DIR/kubectl"
 output="$(
   PATH="$TMP_DIR:$PATH" \
     TEST_TMP_DIR="$TMP_DIR" \
-    NEW_API_ACCESS_TOKEN='login-access-token' \
+    NEW_API_TOKEN='stored-management-token' \
     bash "$SCRIPT"
 )"
 
-curl_args="$(cat "$TMP_DIR/curl.args")"
 kubectl_args="$(cat "$TMP_DIR/kubectl.args")"
 
-[[ "$curl_args" == *'https://llm.ops.fzyun.io/api/user/token'* ]]
-[[ "$curl_args" == *'Authorization: Bearer login-access-token'* ]]
-[[ "$kubectl_args" == *'flyte-console-new-api'* ]]
-[[ "$kubectl_args" == *'--from-literal=api-token=generated-pat-value'* ]]
-[[ "$output" == *'New API management token secret updated.'* ]]
-[[ "$output" != *'generated-pat-value'* ]]
-[[ "$output" != *'login-access-token'* ]]
+[[ ! -e "$TMP_DIR/curl.args" ]]
+[[ "$kubectl_args" == *'new-api'* ]]
+[[ "$kubectl_args" == *'--from-literal=api-token=stored-management-token'* ]]
+[[ "$output" == *'New API token secret updated.'* ]]
+[[ "$output" != *'stored-management-token'* ]]
 
 printf 'PASS deploy/tests/test_new_api_secret.sh\n'

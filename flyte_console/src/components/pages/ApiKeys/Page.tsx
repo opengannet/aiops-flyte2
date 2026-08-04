@@ -14,12 +14,6 @@ import {
 } from "@heroicons/react/20/solid";
 import { FormEvent, useMemo, useState } from "react";
 
-type CreatedKey = {
-  model: string;
-  name: string;
-  key: string;
-};
-
 const fieldClass =
   "h-10 w-full border border-zinc-300 bg-white px-3 text-sm outline-none focus:border-blue-600 disabled:bg-zinc-100 disabled:text-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
 const buttonClass =
@@ -29,11 +23,8 @@ const primaryButtonClass =
 
 export function ApiKeysPage() {
   const [model, setModel] = useState("");
-  const [externalApiKey, setExternalApiKey] = useState("");
-  const [token, setToken] = useState("");
-  const [createdKey, setCreatedKey] = useState<CreatedKey | null>(null);
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [keyVisible, setKeyVisible] = useState(false);
-  const [tokenVisible, setTokenVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,7 +33,7 @@ export function ApiKeysPage() {
     if (!createdKey) {
       return "";
     }
-    return keyVisible ? createdKey.key : maskKey(createdKey.key);
+    return keyVisible ? createdKey : maskKey(createdKey);
   }, [createdKey, keyVisible]);
 
   const onSubmit = async (event: FormEvent) => {
@@ -51,40 +42,25 @@ export function ApiKeysPage() {
     setCreatedKey(null);
     setCopied(false);
     const trimmedModel = model.trim();
-    const trimmedExternalApiKey = externalApiKey.trim();
-    const trimmedToken = token.trim();
     if (!trimmedModel) {
       setError("模型标识不能为空");
-      return;
-    }
-    if (!trimmedExternalApiKey) {
-      setError("第三方 API Key 不能为空");
-      return;
-    }
-    if (!trimmedToken) {
-      setError("New API 凭证不能为空");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const response = await fetch(getConsoleApiPath("/token"), {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${trimmedExternalApiKey}`,
-          "content-type": "application/json",
+      const response = await fetch(
+        getConsoleApiPath(`/api/aione/apikey/${encodeModelPath(trimmedModel)}`),
+        {
+          method: "POST",
         },
-        body: JSON.stringify({
-          model: trimmedModel,
-          token: trimmedToken,
-        }),
-      });
+      );
       const body = (await response.json()) as {
         status?: number;
         message?: string;
-        data?: CreatedKey;
+        data?: string;
       };
-      if (!response.ok || !body.data) {
+      if (!response.ok || typeof body.data !== "string" || !body.data) {
         throw new Error(body.message || "创建密钥失败");
       }
       setCreatedKey(body.data);
@@ -103,7 +79,7 @@ export function ApiKeysPage() {
       return;
     }
     try {
-      await navigator.clipboard.writeText(createdKey.key);
+      await navigator.clipboard.writeText(createdKey);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
@@ -147,47 +123,6 @@ export function ApiKeysPage() {
                   />
                 </label>
 
-                <label className="grid gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                  第三方 API Key
-                  <input
-                    className={fieldClass}
-                    type="password"
-                    value={externalApiKey}
-                    onChange={(event) => setExternalApiKey(event.target.value)}
-                    placeholder="用于调用 /token 的外部 API Key"
-                    autoComplete="new-password"
-                    disabled={isSubmitting}
-                  />
-                </label>
-
-                <label className="grid gap-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                  New API 凭证
-                  <span className="flex h-10 border border-zinc-300 bg-white dark:border-zinc-700 dark:bg-zinc-950">
-                    <input
-                      className="min-w-0 flex-1 bg-transparent px-3 text-sm outline-none disabled:bg-zinc-100 disabled:text-zinc-500 dark:text-zinc-100 dark:disabled:bg-zinc-900"
-                      type={tokenVisible ? "text" : "password"}
-                      value={token}
-                      onChange={(event) => setToken(event.target.value)}
-                      placeholder="New API Dashboard/PAT token"
-                      autoComplete="new-password"
-                      disabled={isSubmitting}
-                    />
-                    <button
-                      type="button"
-                      className="inline-flex w-10 items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
-                      onClick={() => setTokenVisible((current) => !current)}
-                      title={tokenVisible ? "隐藏凭证" : "显示凭证"}
-                      aria-label={tokenVisible ? "隐藏凭证" : "显示凭证"}
-                    >
-                      {tokenVisible ? (
-                        <EyeSlashIcon className="size-5" />
-                      ) : (
-                        <EyeIcon className="size-5" />
-                      )}
-                    </button>
-                  </span>
-                </label>
-
                 <div>
                   <button
                     type="submit"
@@ -204,14 +139,6 @@ export function ApiKeysPage() {
             {createdKey && (
               <section className="mt-6 max-w-3xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
                 <div className="grid gap-4">
-                  <div>
-                    <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                      名称
-                    </div>
-                    <div className="mt-1 font-mono text-sm text-zinc-900 dark:text-zinc-100">
-                      {createdKey.name}
-                    </div>
-                  </div>
                   <div>
                     <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
                       密钥
@@ -262,6 +189,10 @@ function getConsoleApiPath(path: string) {
     return path;
   }
   return window.location.pathname.startsWith("/v2/") ? `/v2${path}` : path;
+}
+
+function encodeModelPath(model: string) {
+  return model.split("/").map(encodeURIComponent).join("/");
 }
 
 function maskKey(key: string) {
