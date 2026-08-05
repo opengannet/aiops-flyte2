@@ -15,6 +15,7 @@ import {
 import {
   buildCreateModelAppRequest,
   extractAppResourceSummary,
+  extractModelCloudStorageMounts,
   normalizeModelImageInput,
   splitModelParam,
 } from "./modelAppUtils";
@@ -43,6 +44,16 @@ describe("model app helpers", () => {
         memory: " 16Gi ",
         gpu: "2",
         gpuKey: "example.com/gpu",
+        cloudStorageMounts: [
+          {
+            cloudStorageId: " storage-a ",
+            mountPath: " /mnt/models ",
+          },
+          {
+            cloudStorageId: "storage-b",
+            mountPath: "/mnt/checkpoints",
+          },
+        ],
       },
     });
 
@@ -63,6 +74,16 @@ describe("model app helpers", () => {
       gpu: 2,
       gpuKey: "example.com/gpu",
     });
+    expect(request.model?.cloudStorageMounts).toEqual([
+      expect.objectContaining({
+        cloudStorageId: "storage-a",
+        mountPath: "/mnt/models",
+      }),
+      expect.objectContaining({
+        cloudStorageId: "storage-b",
+        mountPath: "/mnt/checkpoints",
+      }),
+    ]);
   });
 
   it("splits params only on newlines and keeps image aliases stable", () => {
@@ -154,5 +175,46 @@ describe("model app helpers", () => {
         "Ephemeral Storage": undefined,
       },
     });
+  });
+
+  it("extracts model cloud storage ids, PVCs, and mount paths from the pod spec", () => {
+    const app = create(AppSchema, {
+      spec: {
+        appPayload: {
+          case: "pod",
+          value: create(K8sPodSchema, {
+            primaryContainerName: "vllm",
+            podSpec: {
+              volumes: [
+                {
+                  name: "models",
+                  persistentVolumeClaim: { claimName: "model-cache" },
+                },
+                {
+                  name: "cloud-storage-0",
+                  persistentVolumeClaim: { claimName: "cs-storage-a" },
+                },
+              ],
+              containers: [
+                {
+                  name: "vllm",
+                  volumeMounts: [
+                    { name: "cloud-storage-0", mountPath: "/mnt/storage-a" },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    });
+
+    expect(extractModelCloudStorageMounts(app)).toEqual([
+      {
+        cloudStorageId: "storage-a",
+        pvcName: "cs-storage-a",
+        mountPath: "/mnt/storage-a",
+      },
+    ]);
   });
 });

@@ -4,6 +4,7 @@
 
 import { create } from "@bufbuild/protobuf";
 
+import { CloudStorageMountSchema } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_definition_pb";
 import { App, Input } from "@/gen/flyteidl2/app/app_definition_pb";
 import {
   CreateModelAppRequest,
@@ -35,6 +36,10 @@ export type ModelAppFormValues = {
   memory: string;
   gpu: string;
   gpuKey: string;
+  cloudStorageMounts: {
+    cloudStorageId: string;
+    mountPath: string;
+  }[];
 };
 
 export type BuildModelAppRequestInput = {
@@ -57,6 +62,12 @@ export type ModelAppMetadata = {
   pvc?: string;
 };
 
+export type ModelCloudStorageMetadata = {
+  cloudStorageId: string;
+  pvcName: string;
+  mountPath: string;
+};
+
 const DEFAULT_GPU_KEY = "nvidia.com/gpu";
 const WELL_KNOWN_K8S_RESOURCES = new Set([
   "cpu",
@@ -76,6 +87,7 @@ export const defaultModelAppFormValues: ModelAppFormValues = {
   memory: "16Gi",
   gpu: "1",
   gpuKey: DEFAULT_GPU_KEY,
+  cloudStorageMounts: [],
 };
 
 export function splitModelParam(param: string) {
@@ -125,6 +137,12 @@ export function buildCreateModelAppRequest({
         gpu: Number.isFinite(gpu) && gpu > 0 ? gpu : 0,
         gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
       }),
+      cloudStorageMounts: values.cloudStorageMounts.map((mount) =>
+        create(CloudStorageMountSchema, {
+          cloudStorageId: mount.cloudStorageId.trim(),
+          mountPath: mount.mountPath.trim(),
+        }),
+      ),
     }),
   });
 }
@@ -153,6 +171,50 @@ export function extractAppResourceSummary(
     return resourcesFromPod(app);
   }
   return emptyResources();
+}
+
+export function extractModelCloudStorageMounts(
+  app: App | undefined,
+): ModelCloudStorageMetadata[] {
+  const pod =
+    app?.spec?.appPayload.case === "pod"
+      ? app.spec.appPayload.value
+      : undefined;
+  const podSpec = pod?.podSpec as Record<string, unknown> | undefined;
+  const volumes = Array.isArray(podSpec?.volumes)
+    ? (podSpec.volumes as Record<string, unknown>[])
+    : [];
+  const containers = Array.isArray(podSpec?.containers)
+    ? (podSpec.containers as Record<string, unknown>[])
+    : [];
+  const container =
+    containers.find((item) => item.name === pod?.primaryContainerName) ??
+    containers[0];
+  const volumeMounts = Array.isArray(container?.volumeMounts)
+    ? (container.volumeMounts as Record<string, unknown>[])
+    : [];
+
+  return volumes.flatMap((volume) => {
+    const volumeName = stringValue(volume.name);
+    const pvc = recordValue(volume.persistentVolumeClaim);
+    const pvcName = stringValue(pvc.claimName);
+    const mount = volumeMounts.find((item) => item.name === volumeName);
+    const mountPath = stringValue(mount?.mountPath);
+    if (
+      !volumeName?.startsWith("cloud-storage-") ||
+      !pvcName?.startsWith("cs-") ||
+      !mountPath
+    ) {
+      return [];
+    }
+    return [
+      {
+        cloudStorageId: pvcName.slice(3),
+        pvcName,
+        mountPath,
+      },
+    ];
+  });
 }
 
 function resourcesFromContainer(
@@ -253,6 +315,12 @@ function inputString(inputs: Input[] | undefined, name: string) {
 
 function stringValue(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function recordValue(value: unknown) {
+  return typeof value === "object" && value !== null
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function emptyResources(): AppResourceSummary {
