@@ -3,6 +3,7 @@ syntax = "proto3";
 package flyteidl2.app;
 
 import "buf/validate/validate.proto";
+import "flyteidl2/aione/cloudstorage/cloud_storage_definition.proto";
 import "flyteidl2/app/app_definition.proto";
 import "flyteidl2/common/identifier.proto";
 import "flyteidl2/common/list.proto";
@@ -32,6 +33,7 @@ message ModelAppInput {
   string param = 8;
   repeated ModelCodeSource codes = 9;
   ModelResourceDefinition resource_definition = 10;
+  repeated aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 11;
 }
 
 // ModelCodeSource describes a repository or archive source for model files.
