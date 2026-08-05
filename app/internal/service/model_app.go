@@ -121,6 +121,7 @@ func (s *InternalAppService) resolveModelAppCloudStorageMounts(ctx context.Conte
 }
 
 func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMount) error {
+	seenMountPaths := make(map[string]struct{}, len(mounts))
 	for _, mount := range mounts {
 		cloudStorageID := strings.TrimSpace(mount.GetCloudStorageId())
 		mountPath := strings.TrimSpace(mount.GetMountPath())
@@ -130,6 +131,13 @@ func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMou
 		if !path.IsAbs(mountPath) {
 			return fmt.Errorf("cloud storage mount path must be absolute")
 		}
+		if mountPath == modelPVCMountPath || mountPath == huggingFaceCachePath {
+			return fmt.Errorf("cloud storage mount path is reserved for model cache: %s", mountPath)
+		}
+		if _, ok := seenMountPaths[mountPath]; ok {
+			return fmt.Errorf("cloud storage mount path must be unique: %s", mountPath)
+		}
+		seenMountPaths[mountPath] = struct{}{}
 	}
 	return nil
 }

@@ -370,6 +370,89 @@ func TestCreateModelApp_RejectsRelativeCloudStorageMountPath(t *testing.T) {
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
+func TestCreateModelApp_RejectsEmptyCloudStorageID(t *testing.T) {
+	svc := NewInternalAppService(&mockAppK8sClient{})
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Project: "proj",
+			Domain:  "dev",
+			Id:      "qwen-local",
+			CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{
+				MountPath: "/data/models",
+			}},
+		},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestCreateModelApp_RejectsDuplicateCloudStorageMountPath(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	k8s.On("PublicIngress", mock.Anything).Return((*flyteapp.Ingress)(nil))
+	firstKey := models.CloudStorageKey{Org: "flyte", Project: "proj", Domain: "dev", ID: "models-1"}
+	secondKey := models.CloudStorageKey{Org: "flyte", Project: "proj", Domain: "dev", ID: "models-2"}
+	repo := &fakeModelAppCloudStorageRepo{storages: map[models.CloudStorageKey]*models.CloudStorage{
+		firstKey:  {CloudStorageKey: firstKey, SizeGB: 10, StorageClass: "local-path"},
+		secondKey: {CloudStorageKey: secondKey, SizeGB: 20, StorageClass: "local-path"},
+	}}
+	svc := NewInternalAppService(k8s, repo)
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Org:     "flyte",
+			Project: "proj",
+			Domain:  "dev",
+			Id:      "qwen-local",
+			CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{
+				{CloudStorageId: "models-1", MountPath: "/data/models"},
+				{CloudStorageId: "models-2", MountPath: "/data/models"},
+			},
+		},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestCreateModelApp_RejectsModelCacheReservedMountPaths(t *testing.T) {
+	tests := []struct {
+		name      string
+		mountPath string
+	}{
+		{name: "model directory", mountPath: modelPVCMountPath},
+		{name: "hugging face cache", mountPath: huggingFaceCachePath},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k8s := &mockAppK8sClient{}
+			k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			k8s.On("PublicIngress", mock.Anything).Return((*flyteapp.Ingress)(nil))
+			key := models.CloudStorageKey{Org: "flyte", Project: "proj", Domain: "dev", ID: "models-1"}
+			repo := &fakeModelAppCloudStorageRepo{storages: map[models.CloudStorageKey]*models.CloudStorage{
+				key: {CloudStorageKey: key, SizeGB: 10, StorageClass: "local-path"},
+			}}
+			svc := NewInternalAppService(k8s, repo)
+
+			_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+				Model: &flyteapp.ModelAppInput{
+					Org:     "flyte",
+					Project: "proj",
+					Domain:  "dev",
+					Id:      "qwen-local",
+					CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{
+						CloudStorageId: "models-1",
+						MountPath:      tt.mountPath,
+					}},
+				},
+			}))
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+		})
+	}
+}
+
 func TestCreateModelApp_ReturnsNotFoundForMissingCloudStorage(t *testing.T) {
 	k8s := &mockAppK8sClient{}
 	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Return(nil)
