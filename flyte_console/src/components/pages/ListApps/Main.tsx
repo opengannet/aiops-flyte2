@@ -43,7 +43,7 @@ export function ListAppsPage() {
               <div className="flex items-center gap-3">
                 <Button
                   color="union"
-                  href={`/domain/${params.domain}/project/${params.project}/apps/create`}
+                  href={`/v2/domain/${params.domain}/project/${params.project}/apps/create`}
                 >
                   <PlusIcon data-slot="icon" />
                   Create model app

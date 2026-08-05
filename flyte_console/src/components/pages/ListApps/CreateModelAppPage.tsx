@@ -40,7 +40,7 @@ export function CreateModelAppPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const createHref = useMemo(
-    () => `/domain/${params.domain}/project/${params.project}/apps`,
+    () => `/v2/domain/${params.domain}/project/${params.project}/apps`,
     [params.domain, params.project],
   );
 
