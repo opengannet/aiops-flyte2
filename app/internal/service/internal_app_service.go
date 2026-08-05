@@ -11,18 +11,24 @@ import (
 	"github.com/flyteorg/flyte/v2/flytestdlib/logger"
 	flyteapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app"
 	"github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app/appconnect"
+	"github.com/flyteorg/flyte/v2/runs/repository/interfaces"
 )
 
 // InternalAppService is the data plane implementation of the AppService.
 // It has direct K8s access via AppK8sClientInterface.
 type InternalAppService struct {
 	appconnect.UnimplementedAppServiceHandler
-	k8s appk8s.AppK8sClientInterface
+	k8s              appk8s.AppK8sClientInterface
+	cloudStorageRepo interfaces.CloudStorageRepo
 }
 
 // NewInternalAppService creates a new InternalAppService.
-func NewInternalAppService(k8s appk8s.AppK8sClientInterface) *InternalAppService {
-	return &InternalAppService{k8s: k8s}
+func NewInternalAppService(k8s appk8s.AppK8sClientInterface, cloudStorageRepos ...interfaces.CloudStorageRepo) *InternalAppService {
+	var cloudStorageRepo interfaces.CloudStorageRepo
+	if len(cloudStorageRepos) > 0 {
+		cloudStorageRepo = cloudStorageRepos[0]
+	}
+	return &InternalAppService{k8s: k8s, cloudStorageRepo: cloudStorageRepo}
 }
 
 // Ensure InternalAppService satisfies the generated handler interface.

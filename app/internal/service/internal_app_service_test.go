@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,15 +20,48 @@ import (
 	appk8s "github.com/flyteorg/flyte/v2/app/internal/k8s"
 	aionedownloader "github.com/flyteorg/flyte/v2/flyteplugins/aione/downloader"
 	"github.com/flyteorg/flyte/v2/flytestdlib/utils"
+	cloudstoragepb "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/aione/cloudstorage"
 	flyteapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app"
 	"github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app/appconnect"
 	"github.com/flyteorg/flyte/v2/gen/go/flyteidl2/common"
 	flytecoreapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/core"
+	"github.com/flyteorg/flyte/v2/runs/repository/interfaces"
+	"github.com/flyteorg/flyte/v2/runs/repository/models"
 )
 
 // mockAppK8sClient is a testify mock for AppK8sClientInterface.
 type mockAppK8sClient struct {
 	mock.Mock
+}
+
+type fakeModelAppCloudStorageRepo struct {
+	interfaces.CloudStorageRepo
+	storages          map[models.CloudStorageKey]*models.CloudStorage
+	getKeys           []models.CloudStorageKey
+	materializations  []models.CloudStoragePVC
+	setErr            error
+	onSetMaterialized func()
+}
+
+func (r *fakeModelAppCloudStorageRepo) Get(_ context.Context, key models.CloudStorageKey) (*models.CloudStorage, error) {
+	r.getKeys = append(r.getKeys, key)
+	storage, ok := r.storages[key]
+	if !ok {
+		return nil, fmt.Errorf("cloud storage not found: %s/%s/%s/%s", key.Org, key.Project, key.Domain, key.ID)
+	}
+	return storage, nil
+}
+
+func (r *fakeModelAppCloudStorageRepo) SetMaterialized(_ context.Context, key models.CloudStorageKey, namespace, pvcName string) error {
+	if r.onSetMaterialized != nil {
+		r.onSetMaterialized()
+	}
+	r.materializations = append(r.materializations, models.CloudStoragePVC{
+		CloudStorageKey: key,
+		TargetNamespace: namespace,
+		PVCName:         pvcName,
+	})
+	return r.setErr
 }
 
 func (m *mockAppK8sClient) Deploy(ctx context.Context, app *flyteapp.App) error {
@@ -137,6 +171,17 @@ func newTestClient(t *testing.T, k8s *mockAppK8sClient) appconnect.AppServiceCli
 	server := httptest.NewServer(mux)
 	t.Cleanup(server.Close)
 	return appconnect.NewAppServiceClient(http.DefaultClient, server.URL+"/internal")
+}
+
+func TestNewInternalAppService_CloudStorageRepoIsOptional(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+
+	withoutRepo := NewInternalAppService(k8s)
+	assert.Nil(t, withoutRepo.cloudStorageRepo)
+
+	repo := &fakeModelAppCloudStorageRepo{}
+	withRepo := NewInternalAppService(k8s, repo)
+	assert.Same(t, repo, withRepo.cloudStorageRepo)
 }
 
 // --- Create ---
@@ -301,6 +346,136 @@ func TestCreateModelApp_BuildsSanitizedVLLMPod(t *testing.T) {
 	assert.Equal(t, aux.PersistentVolumeClaims[0].Name, podSpec.Volumes[0].PersistentVolumeClaim.ClaimName)
 	assert.Equal(t, "/models", main.VolumeMounts[0].MountPath)
 	assert.Equal(t, "/root/.cache/huggingface", main.VolumeMounts[1].MountPath)
+	k8s.AssertExpectations(t)
+}
+
+func TestCreateModelApp_RejectsRelativeCloudStorageMountPath(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	k8s.On("PublicIngress", mock.Anything).Return((*flyteapp.Ingress)(nil))
+	svc := NewInternalAppService(k8s)
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Project: "proj",
+			Domain:  "dev",
+			Id:      "qwen-local",
+			CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{
+				CloudStorageId: "models",
+				MountPath:      "data/models",
+			}},
+		},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestCreateModelApp_ReturnsNotFoundForMissingCloudStorage(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	k8s.On("PublicIngress", mock.Anything).Return((*flyteapp.Ingress)(nil))
+	repo := &fakeModelAppCloudStorageRepo{storages: map[models.CloudStorageKey]*models.CloudStorage{}}
+	svc := NewInternalAppService(k8s, repo)
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Org:     "flyte",
+			Project: "proj",
+			Domain:  "dev",
+			Id:      "qwen-local",
+			CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{
+				CloudStorageId: "missing-models",
+				MountPath:      "/data/models",
+			}},
+		},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	assert.Equal(t, []models.CloudStorageKey{{
+		Org: "flyte", Project: "proj", Domain: "dev", ID: "missing-models",
+	}}, repo.getKeys)
+}
+
+func TestCreateModelApp_MaterializesCloudStoragePVCAndMountsVLLMContainer(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	key := models.CloudStorageKey{Org: "flyte", Project: "proj", Domain: "dev", ID: "models-1"}
+	repo := &fakeModelAppCloudStorageRepo{storages: map[models.CloudStorageKey]*models.CloudStorage{
+		key: {
+			CloudStorageKey: key,
+			SizeGB:          120,
+			StorageClass:    "bj1-ebs",
+		},
+	}}
+	deployed := false
+	repo.onSetMaterialized = func() {
+		assert.True(t, deployed, "cloud storage must be marked materialized after deployment")
+	}
+
+	var deployedApp *flyteapp.App
+	var aux appk8s.AppAuxResources
+	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		deployedApp = args.Get(1).(*flyteapp.App)
+		aux = args.Get(2).(appk8s.AppAuxResources)
+		deployed = true
+	}).Return(nil)
+	k8s.On("PublicIngress", mock.Anything).Return((*flyteapp.Ingress)(nil))
+	svc := NewInternalAppService(k8s, repo)
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Org:     "flyte",
+			Project: "proj",
+			Domain:  "dev",
+			Id:      "qwen-local",
+			Code:    "qwen-local",
+			Codes: []*flyteapp.ModelCodeSource{{
+				Id: "https://git.example.com/team/qwen-local.git",
+			}},
+			CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{
+				CloudStorageId: "models-1",
+				MountPath:      "/data/models",
+			}},
+		},
+	}))
+	require.NoError(t, err)
+
+	require.Len(t, aux.PersistentVolumeClaims, 2)
+	modelCachePVC := aux.PersistentVolumeClaims[0]
+	assert.Equal(t, "qwen-local-proj-dev-model-cache", modelCachePVC.Name)
+	assert.Equal(t, defaultModelPVCSize, quantityString(modelCachePVC.Spec.Resources.Requests[corev1.ResourceStorage]))
+	require.NotNil(t, modelCachePVC.Spec.StorageClassName)
+	assert.Equal(t, defaultStorageClass, *modelCachePVC.Spec.StorageClassName)
+
+	cloudPVC := aux.PersistentVolumeClaims[1]
+	assert.Equal(t, "cs-models-1", cloudPVC.Name)
+	assert.Equal(t, appk8s.AppNamespace, cloudPVC.Namespace)
+	assert.Equal(t, "true", cloudPVC.Labels["flyte.org/cloud-storage"])
+	assert.Equal(t, "models-1", cloudPVC.Labels["flyte.org/cloud-storage-id"])
+	assert.Equal(t, []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, cloudPVC.Spec.AccessModes)
+	require.NotNil(t, cloudPVC.Spec.StorageClassName)
+	assert.Equal(t, "bj1-ebs", *cloudPVC.Spec.StorageClassName)
+	assert.Equal(t, "120Gi", quantityString(cloudPVC.Spec.Resources.Requests[corev1.ResourceStorage]))
+
+	var podSpec corev1.PodSpec
+	require.NoError(t, utils.UnmarshalStructToObj(deployedApp.Spec.GetPod().GetPodSpec(), &podSpec))
+	require.Len(t, podSpec.Volumes, 2)
+	assert.Equal(t, modelCachePVC.Name, podSpec.Volumes[0].PersistentVolumeClaim.ClaimName)
+	assert.Equal(t, "cloud-storage-0", podSpec.Volumes[1].Name)
+	assert.Equal(t, cloudPVC.Name, podSpec.Volumes[1].PersistentVolumeClaim.ClaimName)
+	require.Len(t, podSpec.Containers, 1)
+	assert.Equal(t, []corev1.VolumeMount{
+		{Name: "models", MountPath: modelPVCMountPath},
+		{Name: "models", MountPath: huggingFaceCachePath},
+		{Name: "cloud-storage-0", MountPath: "/data/models"},
+	}, podSpec.Containers[0].VolumeMounts)
+	require.Len(t, podSpec.InitContainers, 1)
+	assert.Equal(t, []corev1.VolumeMount{{Name: "models", MountPath: modelPVCMountPath}}, podSpec.InitContainers[0].VolumeMounts)
+
+	assert.Equal(t, []models.CloudStoragePVC{{
+		CloudStorageKey: key,
+		TargetNamespace: appk8s.AppNamespace,
+		PVCName:         "cs-models-1",
+	}}, repo.materializations)
 	k8s.AssertExpectations(t)
 }
 

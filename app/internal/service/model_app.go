@@ -24,9 +24,12 @@ import (
 
 	appk8s "github.com/flyteorg/flyte/v2/app/internal/k8s"
 	aionedownloader "github.com/flyteorg/flyte/v2/flyteplugins/aione/downloader"
+	pluginutils "github.com/flyteorg/flyte/v2/flyteplugins/go/tasks/pluginmachinery/utils"
 	"github.com/flyteorg/flyte/v2/flytestdlib/logger"
+	cloudstoragepb "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/aione/cloudstorage"
 	flyteapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app"
 	flytecoreapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/core"
+	"github.com/flyteorg/flyte/v2/runs/repository/models"
 )
 
 const (
@@ -53,8 +56,15 @@ func (s *InternalAppService) CreateModelApp(
 	if input == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("model input is required"))
 	}
+	if err := validateModelAppCloudStorageMounts(input.GetCloudStorageMounts()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	cloudStorageMounts, err := s.resolveModelAppCloudStorageMounts(ctx, input)
+	if err != nil {
+		return nil, err
+	}
 
-	app, resources, err := buildModelApp(input)
+	app, resources, err := buildModelApp(input, cloudStorageMounts)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -63,6 +73,12 @@ func (s *InternalAppService) CreateModelApp(
 		logger.Errorf(ctx, "Failed to deploy model app %s: %v", app.GetMetadata().GetId().GetName(), err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
+	for _, mount := range cloudStorageMounts {
+		pvcName := modelAppCloudStoragePVCName(mount.storage.ID)
+		if err := s.cloudStorageRepo.SetMaterialized(ctx, mount.storage.CloudStorageKey, appk8s.AppNamespace, pvcName); err != nil {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
 
 	app.Status = &flyteapp.Status{
 		Ingress: s.k8s.PublicIngress(app.GetMetadata().GetId()),
@@ -70,7 +86,55 @@ func (s *InternalAppService) CreateModelApp(
 	return connect.NewResponse(&flyteapp.CreateResponse{App: app}), nil
 }
 
-func buildModelApp(input *flyteapp.ModelAppInput) (*flyteapp.App, appk8s.AppAuxResources, error) {
+type resolvedModelAppCloudStorageMount struct {
+	storage   *models.CloudStorage
+	mountPath string
+}
+
+func (s *InternalAppService) resolveModelAppCloudStorageMounts(ctx context.Context, input *flyteapp.ModelAppInput) ([]resolvedModelAppCloudStorageMount, error) {
+	mounts := input.GetCloudStorageMounts()
+	if len(mounts) == 0 {
+		return nil, nil
+	}
+	if s.cloudStorageRepo == nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("cloud storage repository is required"))
+	}
+
+	resolved := make([]resolvedModelAppCloudStorageMount, 0, len(mounts))
+	for _, mount := range mounts {
+		key := models.CloudStorageKey{
+			Org:     strings.TrimSpace(input.GetOrg()),
+			Project: strings.TrimSpace(input.GetProject()),
+			Domain:  strings.TrimSpace(input.GetDomain()),
+			ID:      strings.TrimSpace(mount.GetCloudStorageId()),
+		}
+		storage, err := s.cloudStorageRepo.Get(ctx, key)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		resolved = append(resolved, resolvedModelAppCloudStorageMount{
+			storage:   storage,
+			mountPath: strings.TrimSpace(mount.GetMountPath()),
+		})
+	}
+	return resolved, nil
+}
+
+func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMount) error {
+	for _, mount := range mounts {
+		cloudStorageID := strings.TrimSpace(mount.GetCloudStorageId())
+		mountPath := strings.TrimSpace(mount.GetMountPath())
+		if cloudStorageID == "" || mountPath == "" {
+			return fmt.Errorf("cloud storage id and mount path are required")
+		}
+		if !path.IsAbs(mountPath) {
+			return fmt.Errorf("cloud storage mount path must be absolute")
+		}
+	}
+	return nil
+}
+
+func buildModelApp(input *flyteapp.ModelAppInput, cloudStorageMounts []resolvedModelAppCloudStorageMount) (*flyteapp.App, appk8s.AppAuxResources, error) {
 	project := strings.TrimSpace(input.GetProject())
 	domain := strings.TrimSpace(input.GetDomain())
 	if project == "" || domain == "" {
@@ -107,12 +171,12 @@ func buildModelApp(input *flyteapp.ModelAppInput) (*flyteapp.App, appk8s.AppAuxR
 	pvcName := auxResourceName(appID, "model-cache")
 	secretName := auxResourceName(appID, "model-downloader")
 	podSpec := buildModelPodSpec(image, args, port, input.GetResourceDefinition(), pvcName, secretName, len(downloaderCodes) > 0)
-	podStruct, err := podSpecToStruct(podSpec)
+	resources, err := buildModelAuxResources(pvcName, secretName, downloaderCodes)
 	if err != nil {
 		return nil, appk8s.AppAuxResources{}, err
 	}
-
-	resources, err := buildModelAuxResources(pvcName, secretName, downloaderCodes)
+	addModelAppCloudStorageResources(&podSpec, &resources, cloudStorageMounts)
+	podStruct, err := podSpecToStruct(podSpec)
 	if err != nil {
 		return nil, appk8s.AppAuxResources{}, err
 	}
@@ -143,6 +207,58 @@ func buildModelApp(input *flyteapp.ModelAppInput) (*flyteapp.App, appk8s.AppAuxR
 		},
 	}
 	return app, resources, nil
+}
+
+func addModelAppCloudStorageResources(podSpec *corev1.PodSpec, resources *appk8s.AppAuxResources, mounts []resolvedModelAppCloudStorageMount) {
+	mainContainerIndex := -1
+	for i := range podSpec.Containers {
+		if podSpec.Containers[i].Name == vllmImageAlias {
+			mainContainerIndex = i
+			break
+		}
+	}
+	if mainContainerIndex < 0 {
+		return
+	}
+
+	for i, mount := range mounts {
+		volumeName := fmt.Sprintf("cloud-storage-%d", i)
+		pvcName := modelAppCloudStoragePVCName(mount.storage.ID)
+		storageClass := mount.storage.StorageClass
+		resources.PersistentVolumeClaims = append(resources.PersistentVolumeClaims, &corev1.PersistentVolumeClaim{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pvcName,
+				Namespace: appk8s.AppNamespace,
+				Labels: map[string]string{
+					"flyte.org/cloud-storage":    "true",
+					"flyte.org/cloud-storage-id": mount.storage.ID,
+				},
+			},
+			Spec: corev1.PersistentVolumeClaimSpec{
+				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+				StorageClassName: &storageClass,
+				Resources: corev1.VolumeResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceStorage: k8sresource.MustParse(fmt.Sprintf("%dGi", mount.storage.SizeGB)),
+					},
+				},
+			},
+		})
+		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
+			Name: volumeName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: pvcName},
+			},
+		})
+		podSpec.Containers[mainContainerIndex].VolumeMounts = append(
+			podSpec.Containers[mainContainerIndex].VolumeMounts,
+			corev1.VolumeMount{Name: volumeName, MountPath: mount.mountPath},
+		)
+	}
+}
+
+func modelAppCloudStoragePVCName(id string) string {
+	return pluginutils.ConvertToDNS1123SubdomainCompatibleString("cs-" + id)
 }
 
 func buildModelPodSpec(image string, args []string, port int32, resourceDefinition *flyteapp.ModelResourceDefinition, pvcName, secretName string, hasDownloader bool) corev1.PodSpec {
