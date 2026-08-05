@@ -38,6 +38,7 @@ const (
 	labelAppName      = "flyte.org/app-name"
 	labelAppAuxiliary = "flyte.org/app-auxiliary"
 	labelAppStopped   = "flyte.org/app-stopped"
+	labelCloudStorage = "flyte.org/cloud-storage"
 
 	annotationSpecSHA = "flyte.org/spec-sha"
 	annotationAppID   = "flyte.org/app-id"
@@ -441,6 +442,9 @@ func (c *AppK8sClient) deleteAuxResources(ctx context.Context, appID *flyteapp.I
 		return err
 	}
 	for i := range pvcs.Items {
+		if pvcs.Items[i].Labels[labelCloudStorage] == "true" {
+			continue
+		}
 		if err := c.k8sClient.Delete(ctx, &pvcs.Items[i]); err != nil && !k8serrors.IsNotFound(err) {
 			return err
 		}

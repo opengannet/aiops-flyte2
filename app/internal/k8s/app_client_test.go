@@ -140,17 +140,22 @@ func TestDeploy_K8sPodPayloadPreservesVLLMShape(t *testing.T) {
 	assert.Equal(t, int32(8000), service.Spec.Ports[0].TargetPort.IntVal)
 }
 
-func TestDeployWithResourcesCreatesAuxiliaryResourcesAndDeleteRemovesEverything(t *testing.T) {
+func TestDeployWithResourcesDeleteRemovesOwnedAuxiliaryResourcesAndPreservesCloudStoragePVC(t *testing.T) {
 	client := testClient(t)
 	app := testApp("proj", "dev", "qwen", "vllm")
 	id := app.Metadata.Id
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-secret"}, Data: map[string][]byte{"aione_params": []byte("token")}}
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-cache"}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")}}}}
-	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{Secrets: []*corev1.Secret{secret}, PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}))
+	cloudStoragePVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "cs-models", Labels: map[string]string{"flyte.org/cloud-storage": "true"}}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")}}}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{Secrets: []*corev1.Secret{secret}, PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc, cloudStoragePVC}}))
 	storedSecret := &corev1.Secret{}
 	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("qwen-model-secret"), storedSecret))
 	assert.Equal(t, "true", storedSecret.Labels[labelAppAuxiliary])
 	assert.NotContains(t, storedSecret.Annotations, annotationSpec)
+	storedCloudStoragePVC := &corev1.PersistentVolumeClaim{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("cs-models"), storedCloudStoragePVC))
+	assert.Equal(t, "true", storedCloudStoragePVC.Labels[labelAppAuxiliary])
+	assert.Equal(t, "true", storedCloudStoragePVC.Labels["flyte.org/cloud-storage"])
 
 	require.NoError(t, client.Delete(context.Background(), id))
 	for _, object := range []ctrlclient.Object{&appsv1.Deployment{}, &corev1.Service{}, &networkingv1.Ingress{}, &corev1.Secret{}, &corev1.PersistentVolumeClaim{}} {
@@ -163,6 +168,7 @@ func TestDeployWithResourcesCreatesAuxiliaryResourcesAndDeleteRemovesEverything(
 		}
 		assert.True(t, k8serrors.IsNotFound(client.k8sClient.Get(context.Background(), clientKey(name), object)))
 	}
+	assert.NoError(t, client.k8sClient.Get(context.Background(), clientKey("cs-models"), &corev1.PersistentVolumeClaim{}))
 }
 
 func TestStopScalesDeploymentToZeroAndRemovesIngress(t *testing.T) {

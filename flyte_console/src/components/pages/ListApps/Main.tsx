@@ -46,7 +46,7 @@ export function ListAppsPage() {
                   href={`/v2/domain/${params.domain}/project/${params.project}/apps/create`}
                 >
                   <PlusIcon data-slot="icon" />
-                  Create model app
+                  创建模型应用
                 </Button>
                 <ListAppsSearch />
               </div>

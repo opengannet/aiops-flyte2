@@ -204,7 +204,7 @@ export function CreateModelAppPage() {
       const response = await cloudStorageClient.createCloudStorage(
         create(CreateCloudStorageRequestSchema, {
           project: projectId,
-          creator: "liu.cd",
+          creator: "console",
           cloudStorage: create(CloudStorageInputSchema, {
             name,
             description: quickCreateValues.description.trim(),

@@ -146,6 +146,7 @@ describe("CreateModelAppPage", () => {
       sizeGb: 50,
       storageClassName: "",
     });
+    expect(mocks.createCloudStorage.mock.calls[0][0].creator).toBe("console");
     expect(await screen.findByDisplayValue("/mnt/storage-new")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: /新模型盘/ })).toBeChecked();
 

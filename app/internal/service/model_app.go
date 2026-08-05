@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -29,6 +30,7 @@ import (
 	cloudstoragepb "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/aione/cloudstorage"
 	flyteapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app"
 	flytecoreapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/core"
+	"github.com/flyteorg/flyte/v2/runs/repository/interfaces"
 	"github.com/flyteorg/flyte/v2/runs/repository/models"
 )
 
@@ -108,13 +110,16 @@ func (s *InternalAppService) resolveModelAppCloudStorageMounts(ctx context.Conte
 			Domain:  strings.TrimSpace(input.GetDomain()),
 			ID:      strings.TrimSpace(mount.GetCloudStorageId()),
 		}
+		if _, err := s.cloudStorageRepo.GetByID(ctx, key.ID); errors.Is(err, interfaces.ErrCloudStorageIDAmbiguous) {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		}
 		storage, err := s.cloudStorageRepo.Get(ctx, key)
 		if err != nil {
 			return nil, connect.NewError(connect.CodeNotFound, err)
 		}
 		resolved = append(resolved, resolvedModelAppCloudStorageMount{
 			storage:   storage,
-			mountPath: strings.TrimSpace(mount.GetMountPath()),
+			mountPath: normalizeModelAppCloudStorageMountPath(mount.GetMountPath()),
 		})
 	}
 	return resolved, nil
@@ -131,6 +136,7 @@ func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMou
 		if !path.IsAbs(mountPath) {
 			return fmt.Errorf("cloud storage mount path must be absolute")
 		}
+		mountPath = normalizeModelAppCloudStorageMountPath(mountPath)
 		if mountPath == modelPVCMountPath || mountPath == huggingFaceCachePath {
 			return fmt.Errorf("cloud storage mount path is reserved for model cache: %s", mountPath)
 		}
@@ -140,6 +146,10 @@ func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMou
 		seenMountPaths[mountPath] = struct{}{}
 	}
 	return nil
+}
+
+func normalizeModelAppCloudStorageMountPath(mountPath string) string {
+	return path.Clean(strings.TrimSpace(mountPath))
 }
 
 func buildModelApp(input *flyteapp.ModelAppInput, cloudStorageMounts []resolvedModelAppCloudStorageMount) (*flyteapp.App, appk8s.AppAuxResources, error) {
