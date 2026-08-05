@@ -294,7 +294,7 @@ pull_containerd_image() {
 pull_containerd_image rancher/mirrored-pause:3.6
 pull_containerd_image rancher/mirrored-coredns-coredns:1.14.3
 pull_containerd_image rancher/local-path-provisioner:v0.0.36
-pull_containerd_image rancher/mirrored-library-busybox:1.37.0
+pull_containerd_image rancher/mirrored-library-busybox:1.37.0 || printf 'Optional image unavailable: %s\n' 'rancher/mirrored-library-busybox:1.37.0'
 pull_containerd_image rancher/mirrored-library-traefik:3.6.13
 pull_containerd_image postgres:17
 pull_containerd_image ghcr.io/unionai-oss/flyteconsole-v2:latest
