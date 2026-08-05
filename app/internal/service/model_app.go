@@ -110,8 +110,11 @@ func (s *InternalAppService) resolveModelAppCloudStorageMounts(ctx context.Conte
 			Domain:  strings.TrimSpace(input.GetDomain()),
 			ID:      strings.TrimSpace(mount.GetCloudStorageId()),
 		}
-		if _, err := s.cloudStorageRepo.GetByID(ctx, key.ID); errors.Is(err, interfaces.ErrCloudStorageIDAmbiguous) {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+		if _, err := s.cloudStorageRepo.GetByID(ctx, key.ID); err != nil {
+			if errors.Is(err, interfaces.ErrCloudStorageIDAmbiguous) {
+				return nil, connect.NewError(connect.CodeFailedPrecondition, err)
+			}
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to check cloud storage id uniqueness: %w", err))
 		}
 		storage, err := s.cloudStorageRepo.Get(ctx, key)
 		if err != nil {

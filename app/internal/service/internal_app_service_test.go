@@ -485,6 +485,36 @@ func TestCreateModelApp_RejectsAmbiguousCloudStorageID(t *testing.T) {
 	k8s.AssertNotCalled(t, "DeployWithResources", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestCreateModelApp_FailsClosedWhenCloudStorageIDUniquenessCheckFails(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	k8s.On("PublicIngress", mock.Anything).Return((*flyteapp.Ingress)(nil))
+	key := models.CloudStorageKey{Org: "flyte", Project: "proj", Domain: "dev", ID: "models-1"}
+	repo := &fakeModelAppCloudStorageRepo{
+		storages: map[models.CloudStorageKey]*models.CloudStorage{
+			key: {CloudStorageKey: key, SizeGB: 10, StorageClass: "local-path"},
+		},
+		getByIDErr: fmt.Errorf("database unavailable"),
+	}
+	svc := NewInternalAppService(k8s, repo)
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Org:     "flyte",
+			Project: "proj",
+			Domain:  "dev",
+			Id:      "qwen-local",
+			CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{
+				CloudStorageId: "models-1",
+				MountPath:      "/data/models",
+			}},
+		},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
+	k8s.AssertNotCalled(t, "DeployWithResources", mock.Anything, mock.Anything, mock.Anything)
+}
+
 func TestCreateModelApp_ReturnsNotFoundForMissingCloudStorage(t *testing.T) {
 	k8s := &mockAppK8sClient{}
 	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Return(nil)
