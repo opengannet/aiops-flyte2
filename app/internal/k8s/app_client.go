@@ -228,6 +228,7 @@ func (c *AppK8sClient) buildNativeResources(app *flyteapp.App) (*nativeAppResour
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: selector},
+			Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
 			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: selector}, Spec: podSpec},
 		},
 	}

@@ -65,6 +65,7 @@ func TestDeploy_CreateNativeResources(t *testing.T) {
 	deployment := &appsv1.Deployment{}
 	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), deployment))
 	assert.Equal(t, int32(1), *deployment.Spec.Replicas)
+	assert.Equal(t, appsv1.RecreateDeploymentStrategyType, deployment.Spec.Strategy.Type)
 	assert.Equal(t, "proj/dev/myapp", deployment.Annotations[annotationAppID])
 	assert.Equal(t, "nginx:latest", deployment.Spec.Template.Spec.Containers[0].Image)
 
