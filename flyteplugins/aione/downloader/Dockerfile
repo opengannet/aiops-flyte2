@@ -6,8 +6,17 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+ARG DEBIAN_MIRROR=https://mirrors.fzyun.io/debian
+ARG DEBIAN_SECURITY_MIRROR=https://mirrors.fzyun.io/debian-security
+
+RUN set -eux; \
+    . /etc/os-release; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    printf 'deb %s %s main\n' "$DEBIAN_MIRROR" "$VERSION_CODENAME" > /etc/apt/sources.list; \
+    printf 'deb %s %s-updates main\n' "$DEBIAN_MIRROR" "$VERSION_CODENAME" >> /etc/apt/sources.list; \
+    printf 'deb %s %s-security main\n' "$DEBIAN_SECURITY_MIRROR" "$VERSION_CODENAME" >> /etc/apt/sources.list; \
+    apt-get -o Acquire::Retries=5 update \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir requests minio
