@@ -4,7 +4,7 @@ set -euo pipefail
 NAMESPACE="${NAMESPACE:-flyte}"
 SELECTOR="${SELECTOR:-flyte.org/app-managed=true}"
 
-if ! kubectl api-resources --api-group=serving.knative.dev -o name | grep -qx 'services'; then
+if ! kubectl api-resources --api-group=serving.knative.dev -o name | grep -Eq '^services(\.serving\.knative\.dev)?$'; then
   printf 'Knative Serving CRDs are not installed; no legacy Apps to remove.\n'
   exit 0
 fi

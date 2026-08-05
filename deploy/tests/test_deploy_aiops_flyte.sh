@@ -116,6 +116,10 @@ if ! grep -q 'services.serving.knative.dev' "$LEGACY_CLEANUP"; then
   printf 'expected cleanup script to target legacy KServices\n' >&2
   exit 1
 fi
+if ! grep -Fq "services(\\.serving\\.knative\\.dev)?" "$LEGACY_CLEANUP"; then
+  printf 'expected cleanup script to recognize fully-qualified KService resources\n' >&2
+  exit 1
+fi
 
 dockerfile="$(cat "$ROOT_DIR/Dockerfile")"
 if [[ "$dockerfile" != *'FROM --platform=${BUILDPLATFORM} docker.fzyun.io/library/golang:1.26.3-bookworm AS flytebuilder'* ]]; then
