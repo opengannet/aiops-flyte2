@@ -402,8 +402,7 @@ helm upgrade --install "$RELEASE" charts/flyte-devbox \
   --set flyte-binary.console.image.tag=latest \
   --set flyte-binary.console.image.pullPolicy=Never \
   --set rustfs.image.repository=rustfs/rustfs \
-  --set rustfs.image.tag=1.0.0-alpha.94 \
-  --set knative-serving.enabled=false
+  --set rustfs.image.tag=1.0.0-alpha.94
 
 kubectl -n "$NAMESPACE" rollout status deploy/flyte-binary-console --timeout=5m
 kubectl -n "$NAMESPACE" rollout status deploy/rustfs --timeout=5m

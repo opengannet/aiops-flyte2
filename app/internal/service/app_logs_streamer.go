@@ -17,10 +17,6 @@ import (
 	"github.com/flyteorg/flyte/v2/gen/go/flyteidl2/logs/dataplane"
 )
 
-// knativeQueueProxy is the Knative sidecar container injected into every
-// KService pod. We always stream from the user container instead.
-const knativeQueueProxy = "queue-proxy"
-
 const defaultInitialLines = int64(1000)
 
 // K8sAppLogStreamer streams logs from the pod backing an app replica.
@@ -88,12 +84,10 @@ func (s *K8sAppLogStreamer) TailLogs(ctx context.Context, replicaID *flyteapp.Re
 	return nil
 }
 
-// pickUserContainer returns the primary user container, skipping Knative sidecars.
+// pickUserContainer returns the first container in a native App pod.
 func pickUserContainer(pod *corev1.Pod) string {
 	for _, c := range pod.Spec.Containers {
-		if c.Name != knativeQueueProxy {
-			return c.Name
-		}
+		return c.Name
 	}
 	return ""
 }

@@ -152,7 +152,7 @@ func TestCreate_Success(t *testing.T) {
 
 	resp, err := svc.Create(context.Background(), connect.NewRequest(&flyteapp.CreateRequest{App: app}))
 	require.NoError(t, err)
-	// Conditions are written by handleKServiceEvent, not by Create directly.
+	// Conditions are written by Deployment watch events, not by Create directly.
 	assert.Empty(t, resp.Msg.App.Status.Conditions)
 	assert.Equal(t, ingress.PublicUrl, resp.Msg.App.Status.Ingress.PublicUrl)
 	k8s.AssertExpectations(t)

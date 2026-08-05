@@ -28,7 +28,7 @@ func NewInternalAppService(k8s appk8s.AppK8sClientInterface) *InternalAppService
 // Ensure InternalAppService satisfies the generated handler interface.
 var _ appconnect.AppServiceHandler = (*InternalAppService)(nil)
 
-// Create deploys a new app as a KService CRD.
+// Create deploys a new app as native Kubernetes resources.
 func (s *InternalAppService) Create(
 	ctx context.Context,
 	req *connect.Request[flyteapp.CreateRequest],
@@ -56,8 +56,7 @@ func (s *InternalAppService) Create(
 	return connect.NewResponse(&flyteapp.CreateResponse{App: app}), nil
 }
 
-// Get retrieves an app and its live status from the KService CRD.
-// Note: App.Spec is not populated — status and ingress URL are the authoritative fields.
+// Get retrieves an app and its live status from the App Deployment.
 func (s *InternalAppService) Get(
 	ctx context.Context,
 	req *connect.Request[flyteapp.GetRequest],
@@ -88,7 +87,7 @@ func (s *InternalAppService) getApp(ctx context.Context, appID *flyteapp.Identif
 }
 
 // Update modifies an app's spec or desired state.
-// When Spec.DesiredState is STOPPED, the app is scaled to zero (KService kept).
+// When Spec.DesiredState is STOPPED, the app Deployment is scaled to zero.
 // When Spec.DesiredState is STARTED or ACTIVE, the app is redeployed/resumed.
 // Otherwise the spec update is applied and the app is redeployed.
 func (s *InternalAppService) Update(
@@ -125,7 +124,7 @@ func (s *InternalAppService) Update(
 	return connect.NewResponse(&flyteapp.UpdateResponse{App: app}), nil
 }
 
-// Delete removes the KService CRD for the given app entirely.
+// Delete removes all native Kubernetes resources for the given app.
 func (s *InternalAppService) Delete(
 	ctx context.Context,
 	req *connect.Request[flyteapp.DeleteRequest],
@@ -173,7 +172,7 @@ func (s *InternalAppService) List(
 	return connect.NewResponse(&flyteapp.ListResponse{Apps: apps, Token: nextToken}), nil
 }
 
-// Watch streams live KService events to the client.
+// Watch streams live Deployment events to the client.
 // It first sends the current state as CreateEvents (initial snapshot), then streams changes.
 func (s *InternalAppService) Watch(
 	ctx context.Context,

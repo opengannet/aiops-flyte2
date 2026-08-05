@@ -11,16 +11,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	k8swatch "k8s.io/apimachinery/pkg/watch"
-	duckv1 "knative.dev/pkg/apis/duck/v1"
-	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/flyteorg/flyte/v2/app/internal/config"
@@ -28,1064 +27,225 @@ import (
 	flytecoreapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/core"
 )
 
-// testScheme builds a runtime.Scheme with Knative and core types registered.
 func testScheme(t *testing.T) *runtime.Scheme {
 	t.Helper()
-	s := runtime.NewScheme()
-	require.NoError(t, corev1.AddToScheme(s))
-	require.NoError(t, servingv1.AddToScheme(s))
-	return s
+	scheme := runtime.NewScheme()
+	require.NoError(t, appsv1.AddToScheme(scheme))
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, networkingv1.AddToScheme(scheme))
+	return scheme
 }
 
-// testRevision builds a Knative Revision object with a given ActualReplicas count.
-func testRevision(name, namespace string, actualReplicas int32) *servingv1.Revision {
-	return &servingv1.Revision{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Status: servingv1.RevisionStatus{
-			ActualReplicas: &actualReplicas,
-		},
-	}
-}
-
-// testClient builds an AppK8sClient backed by a fake K8s client.
-func testClient(t *testing.T, objs ...client.Object) *AppK8sClient {
+func testClient(t *testing.T, objects ...ctrlclient.Object) *AppK8sClient {
 	t.Helper()
-	s := testScheme(t)
-	fc := fake.NewClientBuilder().
-		WithScheme(s).
-		WithObjects(objs...).
-		Build()
-	cfg := &config.InternalAppConfig{
-		DefaultRequestTimeout: 5 * time.Minute,
-		MaxRequestTimeout:     time.Hour,
-		WatchBufferSize:       100,
-	}
-	return NewAppK8sClient(fc, nil, cfg)
+	client := fake.NewClientBuilder().WithScheme(testScheme(t)).WithStatusSubresource(&appsv1.Deployment{}).WithObjects(objects...).Build()
+	return NewAppK8sClient(client, nil, &config.InternalAppConfig{BaseDomain: "ops.fzyun.io", Scheme: "https", IngressClassName: "traefik", WatchBufferSize: 10, NamespacedNameSuffixTemplate: "{{ project }}-{{ domain }}"})
 }
 
-// testApp builds a minimal flyteapp.App for use in tests.
 func testApp(project, domain, name, image string) *flyteapp.App {
-	return &flyteapp.App{
-		Metadata: &flyteapp.Meta{
-			Id: &flyteapp.Identifier{
-				Project: project,
-				Domain:  domain,
-				Name:    name,
-			},
-		},
-		Spec: &flyteapp.Spec{
-			AppPayload: &flyteapp.Spec_Container{
-				Container: &flytecoreapp.Container{
-					Image: image,
-				},
-			},
-		},
-	}
+	return &flyteapp.App{Metadata: &flyteapp.Meta{Id: &flyteapp.Identifier{Project: project, Domain: domain, Name: name}}, Spec: &flyteapp.Spec{AppPayload: &flyteapp.Spec_Container{Container: &flytecoreapp.Container{Image: image}}}}
 }
 
 func podSpecStruct(t *testing.T, podSpec corev1.PodSpec) *structpb.Struct {
 	t.Helper()
 	raw, err := json.Marshal(podSpec)
 	require.NoError(t, err)
-	var fields map[string]interface{}
+	var fields map[string]any
 	require.NoError(t, json.Unmarshal(raw, &fields))
-	out, err := structpb.NewStruct(fields)
+	result, err := structpb.NewStruct(fields)
 	require.NoError(t, err)
-	return out
+	return result
 }
 
-func stringPtr(s string) *string { return &s }
-
-func quantityString(q k8sresource.Quantity) string { return q.String() }
-
-func TestDeploy_Create(t *testing.T) {
-	c := testClient(t)
+func TestDeploy_CreateNativeResources(t *testing.T) {
+	client := testClient(t)
 	app := testApp("proj", "dev", "myapp", "nginx:latest")
+	require.NoError(t, client.Deploy(context.Background(), app))
 
-	err := c.Deploy(context.Background(), app)
-	require.NoError(t, err)
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), deployment))
+	assert.Equal(t, int32(1), *deployment.Spec.Replicas)
+	assert.Equal(t, "proj/dev/myapp", deployment.Annotations[annotationAppID])
+	assert.Equal(t, "nginx:latest", deployment.Spec.Template.Spec.Containers[0].Image)
 
-	ksvc := &servingv1.Service{}
-	err = c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc)
-	require.NoError(t, err)
-	assert.Equal(t, "proj", ksvc.Labels[labelProject])
-	assert.Equal(t, "dev", ksvc.Labels[labelDomain])
-	assert.Equal(t, "myapp", ksvc.Labels[labelAppName])
-	assert.NotEmpty(t, ksvc.Annotations[annotationSpecSHA])
-	assert.Equal(t, "proj/dev/myapp", ksvc.Annotations[annotationAppID])
+	service := &corev1.Service{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), service))
+	assert.Equal(t, corev1.ServiceTypeClusterIP, service.Spec.Type)
+	assert.Equal(t, int32(80), service.Spec.Ports[0].Port)
+	assert.Equal(t, int32(8080), service.Spec.Ports[0].TargetPort.IntVal)
+
+	ingress := &networkingv1.Ingress{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), ingress))
+	assert.Equal(t, "myapp-proj-dev.ops.fzyun.io", ingress.Spec.Rules[0].Host)
+	require.NotNil(t, ingress.Spec.IngressClassName)
+	assert.Equal(t, "traefik", *ingress.Spec.IngressClassName)
 }
 
-func TestDeploy_K8sPodPayloadBuildsKServicePodSpec(t *testing.T) {
-	c := testClient(t)
+func TestDeploy_K8sPodPayloadPreservesVLLMShape(t *testing.T) {
+	client := testClient(t)
 	gpuResource := corev1.ResourceName("example.com/gpu")
 	podSpec := corev1.PodSpec{
-		InitContainers: []corev1.Container{{
-			Name:  "model-downloader",
-			Image: "aione-downloader:latest",
-			Env: []corev1.EnvVar{{
-				Name: "AIONE_PARAMS",
-				ValueFrom: &corev1.EnvVarSource{
-					SecretKeyRef: &corev1.SecretKeySelector{
+		InitContainers: []corev1.Container{
+			{
+				Name:  "model-downloader",
+				Image: "downloader",
+				Env: []corev1.EnvVar{{
+					Name: "AIONE_PARAMS",
+					ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
 						LocalObjectReference: corev1.LocalObjectReference{Name: "model-secret"},
 						Key:                  "aione_params",
-					},
-				},
-			}},
-			VolumeMounts: []corev1.VolumeMount{{Name: "models", MountPath: "/models"}},
-		}},
-		Containers: []corev1.Container{{
-			Name:  "vllm",
-			Image: "docker.ops.fzyun.io:5000/vllm/vllm-openai:latest",
-			Args:  []string{"--model", "/models/qwen-local"},
-			Ports: []corev1.ContainerPort{{Name: "http1", ContainerPort: 8000}},
-			Resources: corev1.ResourceRequirements{
-				Requests: corev1.ResourceList{
-					corev1.ResourceCPU:    k8sresource.MustParse("4"),
-					corev1.ResourceMemory: k8sresource.MustParse("16Gi"),
-					gpuResource:           k8sresource.MustParse("1"),
-				},
-				Limits: corev1.ResourceList{
-					corev1.ResourceCPU:    k8sresource.MustParse("4"),
-					corev1.ResourceMemory: k8sresource.MustParse("16Gi"),
-					gpuResource:           k8sresource.MustParse("1"),
-				},
+					}},
+				}},
+				VolumeMounts: []corev1.VolumeMount{{Name: "models", MountPath: "/models"}},
 			},
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "models", MountPath: "/models"},
-				{Name: "models", MountPath: "/root/.cache/huggingface"},
-			},
-			ReadinessProbe: &corev1.Probe{
-				ProbeHandler: corev1.ProbeHandler{
-					HTTPGet: &corev1.HTTPGetAction{Path: "/v1/models", Port: intstr.FromInt(8000)},
-				},
-			},
-			StartupProbe: &corev1.Probe{
-				ProbeHandler: corev1.ProbeHandler{
-					HTTPGet: &corev1.HTTPGetAction{Path: "/v1/models", Port: intstr.FromInt(8000)},
-				},
-			},
-		}},
-		Volumes: []corev1.Volume{{
-			Name: "models",
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "model-cache"},
-			},
-		}},
-		Tolerations: []corev1.Toleration{{
-			Key:      "nvidia.com/gpu",
-			Operator: corev1.TolerationOpExists,
-			Effect:   corev1.TaintEffectNoSchedule,
-		}},
-		Affinity: &corev1.Affinity{
-			NodeAffinity: &corev1.NodeAffinity{},
 		},
+		Containers: []corev1.Container{
+			{
+				Name:  "vllm",
+				Image: "vllm",
+				Args:  []string{"--model", "/models/qwen"},
+				Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: 8000}},
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: k8sresource.MustParse("4"), corev1.ResourceMemory: k8sresource.MustParse("16Gi"), gpuResource: k8sresource.MustParse("1")},
+					Limits:   corev1.ResourceList{corev1.ResourceCPU: k8sresource.MustParse("4"), corev1.ResourceMemory: k8sresource.MustParse("16Gi"), gpuResource: k8sresource.MustParse("1")},
+				},
+				VolumeMounts:   []corev1.VolumeMount{{Name: "models", MountPath: "/models"}, {Name: "models", MountPath: "/root/.cache/huggingface"}},
+				ReadinessProbe: &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/v1/models", Port: intstr.FromInt(8000)}}},
+				StartupProbe:   &corev1.Probe{ProbeHandler: corev1.ProbeHandler{HTTPGet: &corev1.HTTPGetAction{Path: "/v1/models", Port: intstr.FromInt(8000)}}},
+			},
+		},
+		Volumes:     []corev1.Volume{{Name: "models", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "model-cache"}}}},
+		Tolerations: []corev1.Toleration{{Key: "nvidia.com/gpu", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}},
 	}
-	app := &flyteapp.App{
-		Metadata: &flyteapp.Meta{
-			Id: &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "qwen"},
-		},
-		Spec: &flyteapp.Spec{
-			AppPayload: &flyteapp.Spec_Pod{
-				Pod: &flytecoreapp.K8SPod{
-					PodSpec:              podSpecStruct(t, podSpec),
-					PrimaryContainerName: "vllm",
-				},
-			},
-			Autoscaling: &flyteapp.AutoscalingConfig{Replicas: &flyteapp.Replicas{Min: 1, Max: 1}},
-		},
-	}
+	app := &flyteapp.App{Metadata: &flyteapp.Meta{Id: &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "qwen"}}, Spec: &flyteapp.Spec{AppPayload: &flyteapp.Spec_Pod{Pod: &flytecoreapp.K8SPod{PodSpec: podSpecStruct(t, podSpec), PrimaryContainerName: "vllm"}}, Autoscaling: &flyteapp.AutoscalingConfig{Replicas: &flyteapp.Replicas{Min: 1, Max: 1}}}}
+	require.NoError(t, client.Deploy(context.Background(), app))
 
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "qwen-proj-dev", Namespace: AppNamespace}, ksvc))
-	got := ksvc.Spec.Template.Spec.PodSpec
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("qwen-proj-dev"), deployment))
+	got := deployment.Spec.Template.Spec
 	require.Len(t, got.InitContainers, 1)
-	require.Len(t, got.Containers, 1)
-	require.Len(t, got.Volumes, 1)
-
-	assert.Equal(t, "model-downloader", got.InitContainers[0].Name)
 	assert.Equal(t, "model-secret", got.InitContainers[0].Env[0].ValueFrom.SecretKeyRef.Name)
 	assert.Equal(t, "model-cache", got.Volumes[0].PersistentVolumeClaim.ClaimName)
-	assert.Equal(t, "vllm", got.Containers[0].Name)
-	assert.Equal(t, int32(8000), got.Containers[0].Ports[0].ContainerPort)
 	assert.Equal(t, "/v1/models", got.Containers[0].ReadinessProbe.HTTPGet.Path)
 	assert.Equal(t, "/v1/models", got.Containers[0].StartupProbe.HTTPGet.Path)
-	assert.Equal(t, "1", quantityString(got.Containers[0].Resources.Requests[gpuResource]))
-	assert.Equal(t, "1", quantityString(got.Containers[0].Resources.Limits[gpuResource]))
+	requestGPU := got.Containers[0].Resources.Requests[gpuResource]
+	limitGPU := got.Containers[0].Resources.Limits[gpuResource]
+	assert.Equal(t, "1", requestGPU.String())
+	assert.Equal(t, "1", limitGPU.String())
 	assert.Equal(t, "nvidia.com/gpu", got.Tolerations[0].Key)
-	assert.NotNil(t, got.Affinity)
+
+	service := &corev1.Service{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("qwen-proj-dev"), service))
+	assert.Equal(t, int32(8000), service.Spec.Ports[0].TargetPort.IntVal)
 }
 
-func TestDeployWithResourcesCreatesAuxResourcesAndDeleteRemovesThem(t *testing.T) {
-	c := testClient(t)
-	app := testApp("proj", "dev", "qwen", "nginx:latest")
-	appID := app.GetMetadata().GetId()
+func TestDeployWithResourcesCreatesAuxiliaryResourcesAndDeleteRemovesEverything(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "qwen", "vllm")
+	id := app.Metadata.Id
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-secret"}, Data: map[string][]byte{"aione_params": []byte("token")}}
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-cache"}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")}}}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{Secrets: []*corev1.Secret{secret}, PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}))
+	storedSecret := &corev1.Secret{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("qwen-model-secret"), storedSecret))
+	assert.Equal(t, "true", storedSecret.Labels[labelAppAuxiliary])
+	assert.NotContains(t, storedSecret.Annotations, annotationSpec)
 
-	secret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-secret", Namespace: AppNamespace},
-		Type:       corev1.SecretTypeOpaque,
-		Data:       map[string][]byte{"aione_params": []byte("encoded")},
-	}
-	pvc := &corev1.PersistentVolumeClaim{
-		ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-cache", Namespace: AppNamespace},
-		Spec: corev1.PersistentVolumeClaimSpec{
-			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			StorageClassName: stringPtr("local-path"),
-			Resources: corev1.VolumeResourceRequirements{
-				Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")},
-			},
-		},
-	}
-
-	require.NoError(t, c.DeployWithResources(context.Background(), app, AppAuxResources{
-		Secrets:                []*corev1.Secret{secret},
-		PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc},
-	}))
-
-	gotSecret := &corev1.Secret{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "qwen-model-secret", Namespace: AppNamespace}, gotSecret))
-	assert.Equal(t, "true", gotSecret.Labels[labelAppManaged])
-	assert.Equal(t, "proj", gotSecret.Labels[labelProject])
-	assert.Equal(t, "dev", gotSecret.Labels[labelDomain])
-	assert.Equal(t, "qwen", gotSecret.Labels[labelAppName])
-	assert.Equal(t, "true", gotSecret.Labels[labelAppAuxiliary])
-
-	gotPVC := &corev1.PersistentVolumeClaim{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "qwen-model-cache", Namespace: AppNamespace}, gotPVC))
-	assert.Equal(t, "80Gi", quantityString(gotPVC.Spec.Resources.Requests[corev1.ResourceStorage]))
-	assert.Equal(t, "true", gotPVC.Labels[labelAppAuxiliary])
-
-	require.NoError(t, c.Delete(context.Background(), appID))
-	assert.True(t, k8serrors.IsNotFound(c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "qwen-model-secret", Namespace: AppNamespace}, &corev1.Secret{})))
-	assert.True(t, k8serrors.IsNotFound(c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "qwen-model-cache", Namespace: AppNamespace}, &corev1.PersistentVolumeClaim{})))
-}
-
-func TestDeploy_InjectsInternalAppEndpointPattern(t *testing.T) {
-	c := testClient(t)
-	c.cfg.NamespacedNameSuffixTemplate = "{{ project }}-{{ domain }}"
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-
-	envVars := ksvc.Spec.Template.Spec.Containers[0].Env
-	var pattern string
-	for _, e := range envVars {
-		if e.Name == "INTERNAL_APP_ENDPOINT_PATTERN" {
-			pattern = e.Value
-			break
+	require.NoError(t, client.Delete(context.Background(), id))
+	for _, object := range []ctrlclient.Object{&appsv1.Deployment{}, &corev1.Service{}, &networkingv1.Ingress{}, &corev1.Secret{}, &corev1.PersistentVolumeClaim{}} {
+		name := "qwen-proj-dev"
+		if _, ok := object.(*corev1.Secret); ok {
+			name = "qwen-model-secret"
 		}
+		if _, ok := object.(*corev1.PersistentVolumeClaim); ok {
+			name = "qwen-model-cache"
+		}
+		assert.True(t, k8serrors.IsNotFound(client.k8sClient.Get(context.Background(), clientKey(name), object)))
 	}
-	assert.Equal(t, "http://{app_fqdn}-proj-dev.flyte.svc.cluster.local", pattern)
 }
 
-func TestDeploy_DefaultServiceAccount(t *testing.T) {
-	c := testClient(t)
-	c.cfg.DefaultServiceAccount = "flyte2"
-	require.NoError(t, c.Deploy(context.Background(), testApp("proj", "dev", "myapp", "nginx:latest")))
+func TestStopScalesDeploymentToZeroAndRemovesIngress(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "myapp", "nginx")
+	require.NoError(t, client.Deploy(context.Background(), app))
+	require.NoError(t, client.Stop(context.Background(), app.Metadata.Id))
 
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	assert.Equal(t, "flyte2", ksvc.Spec.Template.Spec.ServiceAccountName)
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), deployment))
+	assert.Equal(t, int32(0), *deployment.Spec.Replicas)
+	assert.Equal(t, "true", deployment.Labels[labelAppStopped])
+	assert.True(t, k8serrors.IsNotFound(client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), &networkingv1.Ingress{})))
+
+	require.NoError(t, client.Deploy(context.Background(), app))
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), deployment))
+	assert.Equal(t, int32(1), *deployment.Spec.Replicas)
+	assert.NotContains(t, deployment.Labels, labelAppStopped)
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), &networkingv1.Ingress{}))
 }
 
-func TestDeploy_AppServiceAccountOverridesDefault(t *testing.T) {
-	c := testClient(t)
-	c.cfg.DefaultServiceAccount = "flyte2"
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-	app.Spec.SecurityContext = &flyteapp.SecurityContext{
-		RunAs: &flytecoreapp.Identity{K8SServiceAccount: "app-requested-sa"},
-	}
-	require.NoError(t, c.Deploy(context.Background(), app))
+func TestDeployUpdatePreservesServiceClusterIP(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "myapp", "nginx:v1")
+	require.NoError(t, client.Deploy(context.Background(), app))
 
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	assert.Equal(t, "app-requested-sa", ksvc.Spec.Template.Spec.ServiceAccountName)
+	service := &corev1.Service{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), service))
+	service.Spec.ClusterIP = "10.43.0.10"
+	service.Spec.ClusterIPs = []string{"10.43.0.10"}
+	service.Spec.IPFamilies = []corev1.IPFamily{corev1.IPv4Protocol}
+	require.NoError(t, client.k8sClient.Update(context.Background(), service))
+
+	app.Spec.GetContainer().Image = "nginx:v2"
+	require.NoError(t, client.Deploy(context.Background(), app))
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), service))
+	assert.Equal(t, "10.43.0.10", service.Spec.ClusterIP)
+	assert.Equal(t, []string{"10.43.0.10"}, service.Spec.ClusterIPs)
 }
 
-func TestDeploy_NoServiceAccountWhenUnset(t *testing.T) {
-	c := testClient(t) // cfg.DefaultServiceAccount is empty
-	require.NoError(t, c.Deploy(context.Background(), testApp("proj", "dev", "myapp", "nginx:latest")))
-
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	assert.Empty(t, ksvc.Spec.Template.Spec.ServiceAccountName)
+func TestDeployRejectsReplicaRanges(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "myapp", "nginx")
+	app.Spec.Autoscaling = &flyteapp.AutoscalingConfig{Replicas: &flyteapp.Replicas{Min: 1, Max: 2}}
+	assert.ErrorContains(t, client.Deploy(context.Background(), app), "min to equal max")
 }
 
-func TestDeploy_UpdateOnSpecChange(t *testing.T) {
-	c := testClient(t)
-	app := testApp("proj", "dev", "myapp", "nginx:1.0")
-	require.NoError(t, c.Deploy(context.Background(), app))
+func TestGetAppReportsNativeDeploymentStatus(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "myapp", "nginx")
+	require.NoError(t, client.Deploy(context.Background(), app))
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), deployment))
+	deployment.Status.AvailableReplicas = 1
+	deployment.Status.ReadyReplicas = 1
+	require.NoError(t, client.k8sClient.Status().Update(context.Background(), deployment))
 
-	// Change image — spec SHA changes → update should happen.
-	app.Spec.GetContainer().Image = "nginx:2.0"
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	assert.Equal(t, "nginx:2.0", ksvc.Spec.Template.Spec.Containers[0].Image)
-}
-
-func TestDeploy_SkipUpdateWhenUnchanged(t *testing.T) {
-	c := testClient(t)
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	// Get initial resource version.
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	initialRV := ksvc.ResourceVersion
-
-	// Deploy same spec — should be a no-op.
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	assert.Equal(t, initialRV, ksvc.ResourceVersion, "resource version should not change on no-op deploy")
-}
-
-func TestDeploy_AfterStop_ClearsStoppedLabels(t *testing.T) {
-	// Regression: Deploy() was skipping the update when the spec SHA was unchanged,
-	// even if Stop() had marked the KService as stopped. Clicking "Start App" in the UI sends
-	// the same spec, so the SHA matched and the app could never restart.
-	c := testClient(t)
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	require.NoError(t, c.Stop(context.Background(), id))
-
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	assert.Equal(t, "true", ksvc.Labels[labelAppStopped], "app-stopped label should be set after Stop")
-	assert.Equal(t, visibilityClusterLocal, ksvc.Labels[labelKnativeVisibility], "service should be cluster-local after Stop")
-
-	// Deploy same spec (as "Start App" would) — must not skip due to SHA match.
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	_, stopped := ksvc.Labels[labelAppStopped]
-	assert.False(t, stopped, "app-stopped label must be cleared after Deploy following a Stop")
-	_, visibility := ksvc.Labels[labelKnativeVisibility]
-	assert.False(t, visibility, "visibility label must be cleared after Deploy following a Stop")
-}
-
-func TestStop(t *testing.T) {
-	c := testClient(t)
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	require.NoError(t, c.Stop(context.Background(), id))
-
-	ksvc := &servingv1.Service{}
-	require.NoError(t, c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc))
-	assert.Equal(t, "true", ksvc.Labels[labelAppStopped])
-	assert.Equal(t, visibilityClusterLocal, ksvc.Labels[labelKnativeVisibility])
-	assert.Equal(t, "0", ksvc.Spec.Template.Annotations["autoscaling.knative.dev/min-scale"])
-	assert.Equal(t, "0", ksvc.Spec.Template.Annotations["autoscaling.knative.dev/initial-scale"])
-}
-
-func TestStop_NotFound(t *testing.T) {
-	c := testClient(t)
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "missing"}
-	// Should succeed silently — already gone.
-	require.NoError(t, c.Stop(context.Background(), id))
-}
-
-func TestStop_DeletesLatestReadyRevision(t *testing.T) {
-	// When a KService has a LatestReadyRevisionName, Stop() must delete that
-	// Revision so its Deployment and pods are immediately terminated.
-	// Updating the KService template alone is not sufficient — it does not immediately terminate existing pods.
-	// for the autoscaler and does not kill running pods; they only scale down after
-	// the stable window (~60s) with no traffic.
-	s := testScheme(t)
-	ksvc := &servingv1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "myapp-proj-dev",
-			Namespace: AppNamespace,
-			Labels: map[string]string{
-				labelAppManaged: "true",
-				labelProject:    "proj",
-				labelDomain:     "dev",
-				labelAppName:    "myapp",
-			},
-			Annotations: map[string]string{
-				annotationAppID: "proj/dev/myapp",
-			},
-		},
-	}
-	ksvc.Status.LatestReadyRevisionName = "myapp-proj-dev-00001"
-
-	rev := &servingv1.Revision{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "myapp-proj-dev-00001",
-			Namespace: AppNamespace,
-		},
-	}
-
-	fc := fake.NewClientBuilder().
-		WithScheme(s).
-		WithObjects(ksvc, rev).
-		WithStatusSubresource(ksvc).
-		Build()
-	c := &AppK8sClient{
-		k8sClient: fc,
-		cfg:       &config.InternalAppConfig{},
-	}
-
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	require.NoError(t, c.Stop(context.Background(), id))
-
-	// KService must be marked stopped so Deploy can reliably clear the stopped state.
-	gotKsvc := &servingv1.Service{}
-	require.NoError(t, fc.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, gotKsvc))
-	assert.Equal(t, "true", gotKsvc.Labels[labelAppStopped],
-		"KService must carry the app-stopped label after Stop")
-	assert.Equal(t, visibilityClusterLocal, gotKsvc.Labels[labelKnativeVisibility],
-		"KService must be cluster-local after Stop")
-
-	// LatestReadyRevision must be deleted so its pods are terminated immediately.
-	gotRev := &servingv1.Revision{}
-	err := fc.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev-00001", Namespace: AppNamespace}, gotRev)
-	assert.True(t, k8serrors.IsNotFound(err), "LatestReadyRevision must be deleted after Stop")
-}
-
-func TestDelete(t *testing.T) {
-	c := testClient(t)
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	require.NoError(t, c.Delete(context.Background(), id))
-
-	ksvc := &servingv1.Service{}
-	err := c.k8sClient.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-proj-dev", Namespace: AppNamespace}, ksvc)
-	assert.True(t, k8serrors.IsNotFound(err))
-}
-
-func TestDelete_NotFound(t *testing.T) {
-	c := testClient(t)
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "missing"}
-	require.NoError(t, c.Delete(context.Background(), id))
-}
-
-func TestGetApp_NotFound(t *testing.T) {
-	c := testClient(t)
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "missing"}
-	app, err := c.GetApp(context.Background(), id)
-	require.Error(t, err)
-	assert.True(t, k8serrors.IsNotFound(err))
-	assert.Nil(t, app)
-}
-
-func TestGetApp_Stopped(t *testing.T) {
-	c := testClient(t)
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	require.NoError(t, c.Stop(context.Background(), id))
-
-	result, err := c.GetApp(context.Background(), id)
+	got, err := client.GetApp(context.Background(), app.Metadata.Id)
 	require.NoError(t, err)
-	require.Len(t, result.Status.Conditions, 1)
-	assert.Equal(t, flyteapp.Status_DEPLOYMENT_STATUS_STOPPED, result.Status.Conditions[0].DeploymentStatus)
+	assert.Equal(t, flyteapp.Status_DEPLOYMENT_STATUS_ACTIVE, got.Status.Conditions[0].DeploymentStatus)
+	assert.Equal(t, "https://myapp-proj-dev.ops.fzyun.io", got.Status.Ingress.PublicUrl)
 }
 
-func TestGetApp_CurrentReplicas(t *testing.T) {
-	s := testScheme(t)
-	// Pre-populate a KService with LatestReadyRevisionName already set in status,
-	// and the corresponding Revision with ActualReplicas=4.
-	ksvc := &servingv1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "myapp-proj-dev",
-			Namespace: AppNamespace,
-			Labels: map[string]string{
-				labelAppManaged: "true",
-				labelProject:    "proj",
-				labelDomain:     "dev",
-				labelAppName:    "myapp",
-			},
-			Annotations: map[string]string{
-				annotationAppID: "proj/dev/myapp",
-			},
-		},
-	}
-	ksvc.Status.LatestReadyRevisionName = "myapp-00001"
-
-	rev := testRevision("myapp-00001", AppNamespace, 4)
-
-	fc := fake.NewClientBuilder().
-		WithScheme(s).
-		WithObjects(ksvc, rev).
-		WithStatusSubresource(ksvc).
-		Build()
-	c := &AppK8sClient{
-		k8sClient: fc,
-		cfg:       &config.InternalAppConfig{},
-	}
-
+func TestGetReplicasUsesNativeAppLabels(t *testing.T) {
 	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	result, err := c.GetApp(context.Background(), id)
-	require.NoError(t, err)
-	assert.Equal(t, uint32(4), result.Status.CurrentReplicas)
-}
-
-func TestGetApp_SpecRoundTrip(t *testing.T) {
-	c := testClient(t)
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-	app.Spec.Profile = &flyteapp.Profile{
-		Type:             "FastAPI",
-		Name:             "My App",
-		ShortDescription: "A test app",
-	}
-	app.Spec.Autoscaling = &flyteapp.AutoscalingConfig{
-		Replicas: &flyteapp.Replicas{Min: 1, Max: 5},
-	}
-	require.NoError(t, c.Deploy(context.Background(), app))
-
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	result, err := c.GetApp(context.Background(), id)
-	require.NoError(t, err)
-	require.NotNil(t, result.Spec)
-	assert.Equal(t, "FastAPI", result.Spec.Profile.Type)
-	assert.Equal(t, "My App", result.Spec.Profile.Name)
-	assert.Equal(t, uint32(1), result.Spec.Autoscaling.Replicas.Min)
-	assert.Equal(t, uint32(5), result.Spec.Autoscaling.Replicas.Max)
-}
-
-func TestList(t *testing.T) {
-	s := testScheme(t)
-	// Pre-populate two KServices with different project labels.
-	ksvc1 := &servingv1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "app1",
-			Namespace: AppNamespace,
-			Labels: map[string]string{
-				labelAppManaged: "true",
-				labelProject:    "proj",
-				labelDomain:     "dev",
-				labelAppName:    "app1",
-			},
-			Annotations: map[string]string{
-				annotationAppID: "proj/dev/app1",
-			},
-		},
-	}
-	ksvc2 := &servingv1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "app2",
-			Namespace: "other-dev",
-			Labels: map[string]string{
-				labelAppManaged: "true",
-				labelProject:    "other",
-				labelDomain:     "dev",
-				labelAppName:    "app2",
-			},
-			Annotations: map[string]string{
-				annotationAppID: "other/dev/app2",
-			},
-		},
-	}
-
-	fc := fake.NewClientBuilder().
-		WithScheme(s).
-		WithObjects(ksvc1, ksvc2).
-		Build()
-	c := &AppK8sClient{
-		k8sClient: fc,
-		cfg: &config.InternalAppConfig{
-			DefaultRequestTimeout: 5 * time.Minute,
-			MaxRequestTimeout:     time.Hour,
-		},
-	}
-
-	apps, nextToken, err := c.List(context.Background(), "proj", "dev", 0, "")
-	require.NoError(t, err)
-	assert.Empty(t, nextToken)
-	require.Len(t, apps, 1)
-	assert.Equal(t, "proj", apps[0].Metadata.Id.Project)
-	assert.Equal(t, "app1", apps[0].Metadata.Id.Name)
-}
-
-func TestGetReplicas(t *testing.T) {
-	s := testScheme(t)
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "myapp-abc",
-			Namespace: AppNamespace,
-			Labels: map[string]string{
-				labelKnativeService: "myapp-proj-dev",
-			},
-		},
-		Status: corev1.PodStatus{
-			Phase: corev1.PodRunning,
-			ContainerStatuses: []corev1.ContainerStatus{
-				{Ready: true},
-			},
-		},
-	}
-	fc := fake.NewClientBuilder().WithScheme(s).WithObjects(pod).Build()
-	c := &AppK8sClient{
-		k8sClient: fc,
-		cfg:       &config.InternalAppConfig{},
-	}
-
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	replicas, err := c.GetReplicas(context.Background(), id)
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "myapp-abc", Namespace: AppNamespace, Labels: appSelectorLabels(id)}, Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Ready: true}}}}
+	client := testClient(t, pod)
+	replicas, err := client.GetReplicas(context.Background(), id)
 	require.NoError(t, err)
 	require.Len(t, replicas, 1)
-	assert.Equal(t, "myapp-abc", replicas[0].Metadata.Id.Name)
 	assert.Equal(t, "ACTIVE", replicas[0].Status.DeploymentStatus)
 }
 
-func TestGetReplicas_FiltersToLatestRevision(t *testing.T) {
-	s := testScheme(t)
-	ksvc := &servingv1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: "myapp-proj-dev", Namespace: AppNamespace},
-		Status: servingv1.ServiceStatus{
-			ConfigurationStatusFields: servingv1.ConfigurationStatusFields{
-				LatestReadyRevisionName: "myapp-00002",
-			},
-		},
-	}
-	newPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "myapp-new",
-			Namespace: AppNamespace,
-			Labels: map[string]string{
-				labelKnativeService:  "myapp-proj-dev",
-				labelKnativeRevision: "myapp-00002",
-			},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning, ContainerStatuses: []corev1.ContainerStatus{{Ready: true}}},
-	}
-	oldPod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "myapp-old",
-			Namespace: AppNamespace,
-			Labels: map[string]string{
-				labelKnativeService:  "myapp-proj-dev",
-				labelKnativeRevision: "myapp-00001",
-			},
-		},
-		Status: corev1.PodStatus{Phase: corev1.PodRunning},
-	}
-	fc := fake.NewClientBuilder().WithScheme(s).WithObjects(ksvc, newPod, oldPod).Build()
-	c := &AppK8sClient{k8sClient: fc, cfg: &config.InternalAppConfig{}}
-
-	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
-	replicas, err := c.GetReplicas(context.Background(), id)
-	require.NoError(t, err)
-	require.Len(t, replicas, 1)
-	assert.Equal(t, "myapp-new", replicas[0].Metadata.Id.Name)
+func TestAppResourceNameCapsLongNames(t *testing.T) {
+	name := "this-is-a-very-long-app-name-that-exceeds-the-kubernetes-dns-label-limit"
+	id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: name}
+	raw := name + "-proj-dev"
+	sum := sha256.Sum256([]byte("proj/dev/" + name))
+	assert.Equal(t, raw[:54]+"-"+hex.EncodeToString(sum[:4]), AppResourceName(id))
+	assert.LessOrEqual(t, len(AppResourceName(id)), 63)
 }
 
-func TestDeleteReplica(t *testing.T) {
-	s := testScheme(t)
-	pod := &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "myapp-abc",
-			Namespace: AppNamespace,
-		},
-	}
-	fc := fake.NewClientBuilder().WithScheme(s).WithObjects(pod).Build()
-	c := &AppK8sClient{
-		k8sClient: fc,
-		cfg:       &config.InternalAppConfig{},
-	}
-
-	replicaID := &flyteapp.ReplicaIdentifier{
-		AppId: &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"},
-		Name:  "myapp-abc",
-	}
-	require.NoError(t, c.DeleteReplica(context.Background(), replicaID))
-
-	err := fc.Get(context.Background(),
-		client.ObjectKey{Name: "myapp-abc", Namespace: AppNamespace}, &corev1.Pod{})
-	assert.True(t, k8serrors.IsNotFound(err))
+func clientKey(name string) ctrlclient.ObjectKey {
+	return ctrlclient.ObjectKey{Namespace: AppNamespace, Name: name}
 }
 
-func TestHandleKServiceEvent(t *testing.T) {
-	ksvc := &servingv1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "myapp",
-			Namespace: AppNamespace,
-			Annotations: map[string]string{
-				annotationAppID: "proj/dev/myapp",
-			},
-			Labels: map[string]string{labelAppManaged: "true"},
-		},
-	}
-
-	tests := []struct {
-		eventType    k8swatch.EventType
-		wantEventKey string
-	}{
-		{k8swatch.Added, "create"},
-		{k8swatch.Modified, "update"},
-		{k8swatch.Deleted, "delete"},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.eventType), func(t *testing.T) {
-			c := testClient(t)
-			ch := c.Subscribe("myapp")
-			c.handleKServiceEvent(context.Background(), ksvc, tt.eventType)
-
-			select {
-			case resp := <-ch:
-				require.NotNil(t, resp)
-				switch tt.wantEventKey {
-				case "create":
-					assert.NotNil(t, resp.GetCreateEvent())
-					assert.Equal(t, "proj", resp.GetCreateEvent().App.Metadata.Id.Project)
-				case "update":
-					assert.NotNil(t, resp.GetUpdateEvent())
-					assert.Equal(t, "myapp", resp.GetUpdateEvent().UpdatedApp.Metadata.Id.Name)
-				case "delete":
-					assert.NotNil(t, resp.GetDeleteEvent())
-				}
-			case <-time.After(100 * time.Millisecond):
-				t.Fatal("expected event not received")
-			}
-		})
-	}
-}
-
-func TestKServiceName(t *testing.T) {
-	tests := []struct {
-		name string
-		want string
-	}{
-		{"myapp", "myapp-proj-dev"},
-		{"MyApp", "myapp-proj-dev"},
-		{"my-long-service-name-v1", "my-long-service-name-v1-proj-dev"},
-		{"my-long-service-name-v2", "my-long-service-name-v2-proj-dev"},
-		// Names whose {name}-{project}-{domain} exceeds 63 chars get a hash
-		// suffix instead of blind truncation.
-		{
-			"this-is-a-very-long-app-name-that-exceeds-the-kubernetes-dns-label-limit",
-			func() string {
-				raw := "this-is-a-very-long-app-name-that-exceeds-the-kubernetes-dns-label-limit-proj-dev"
-				sum := sha256.Sum256([]byte("proj/dev/this-is-a-very-long-app-name-that-exceeds-the-kubernetes-dns-label-limit"))
-				return raw[:54] + "-" + hex.EncodeToString(sum[:4])
-			}(),
-		},
-	}
-	for _, tt := range tests {
-		id := &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: tt.name}
-		got := KServiceName(id)
-		assert.Equal(t, tt.want, got)
-		assert.LessOrEqual(t, len(got), maxKServiceNameLen)
-	}
-}
-
-func TestRenderNamespacedSuffix(t *testing.T) {
-	tests := []struct {
-		tmpl    string
-		project string
-		domain  string
-		want    string
-	}{
-		{"{{ project }}-{{ domain }}", "myproject", "dev", "myproject-dev"},
-		{"{{ project }}-{{ domain }}", "MyProject", "Dev", "myproject-dev"},
-		{"{{ project }}-{{ domain }}", "proj", "prod", "proj-prod"},
-		{"custom-{{ domain }}", "proj", "dev", "custom-dev"},
-		{"", "proj", "dev", ""},
-	}
-	for _, tt := range tests {
-		got := renderNamespacedSuffix(tt.tmpl, tt.project, tt.domain)
-		assert.Equal(t, tt.want, got)
-	}
-}
-
-func TestPodDeploymentStatus(t *testing.T) {
-	tests := []struct {
-		name       string
-		pod        corev1.Pod
-		wantStatus string
-		wantReason string
-	}{
-		{
-			name: "running and ready",
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{
-					Phase:             corev1.PodRunning,
-					ContainerStatuses: []corev1.ContainerStatus{{Ready: true}},
-				},
-			},
-			wantStatus: "ACTIVE",
-		},
-		{
-			name: "running but container not ready",
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{
-					Phase: corev1.PodRunning,
-					ContainerStatuses: []corev1.ContainerStatus{
-						{Ready: false, State: corev1.ContainerState{
-							Waiting: &corev1.ContainerStateWaiting{Reason: "ContainerCreating"},
-						}},
-					},
-				},
-			},
-			wantStatus: "DEPLOYING",
-			wantReason: "ContainerCreating",
-		},
-		{
-			name: "pending with waiting reason",
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{
-					Phase: corev1.PodPending,
-					ContainerStatuses: []corev1.ContainerStatus{
-						{State: corev1.ContainerState{
-							Waiting: &corev1.ContainerStateWaiting{Reason: "ImagePullBackOff"},
-						}},
-					},
-				},
-			},
-			wantStatus: "PENDING",
-			wantReason: "ImagePullBackOff",
-		},
-		{
-			name: "failed",
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{
-					Phase:  corev1.PodFailed,
-					Reason: "OOMKilled",
-				},
-			},
-			wantStatus: "FAILED",
-			wantReason: "OOMKilled",
-		},
-		{
-			name: "succeeded",
-			pod: corev1.Pod{
-				Status: corev1.PodStatus{Phase: corev1.PodSucceeded},
-			},
-			wantStatus: "STOPPED",
-			wantReason: "pod completed",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			status, reason := podDeploymentStatus(&tt.pod)
-			assert.Equal(t, tt.wantStatus, status)
-			assert.Equal(t, tt.wantReason, reason)
-		})
-	}
-}
-
-// --- Informer subscribe/unsubscribe tests ---
-
-func TestSubscribe_ReceivesEvent(t *testing.T) {
-	c := testClient(t)
-	ch := c.Subscribe("myapp")
-	defer c.Unsubscribe("myapp", ch)
-
-	ksvc := testKsvc("myapp", AppNamespace, "100")
-	c.handleKServiceEvent(context.Background(), ksvc, k8swatch.Added)
-
-	select {
-	case resp := <-ch:
-		require.NotNil(t, resp.GetCreateEvent())
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("expected event not received")
-	}
-}
-
-func TestSubscribe_AppSpecificDoesNotReceiveOtherApps(t *testing.T) {
-	c := testClient(t)
-	ch := c.Subscribe("app1")
-	defer c.Unsubscribe("app1", ch)
-
-	// Event for app2 should not be delivered to app1 subscriber.
-	c.handleKServiceEvent(context.Background(), testKsvc("app2", AppNamespace, "1"), k8swatch.Added)
-
-	select {
-	case <-ch:
-		t.Fatal("received unexpected event for a different app")
-	case <-time.After(30 * time.Millisecond):
-		// Correct: no event delivered.
-	}
-}
-
-func TestUnsubscribe_ClosesChannel(t *testing.T) {
-	c := testClient(t)
-	ch := c.Subscribe("myapp")
-	c.Unsubscribe("myapp", ch)
-
-	_, ok := <-ch
-	assert.False(t, ok, "channel should be closed after Unsubscribe")
-}
-
-func TestSubscribe_MultipleSubscribers(t *testing.T) {
-	c := testClient(t)
-	ch1 := c.Subscribe("myapp")
-	ch2 := c.Subscribe("myapp")
-	defer c.Unsubscribe("myapp", ch1)
-	defer c.Unsubscribe("myapp", ch2)
-
-	c.handleKServiceEvent(context.Background(), testKsvc("myapp", AppNamespace, "1"), k8swatch.Added)
-
-	for _, ch := range []chan *flyteapp.WatchResponse{ch1, ch2} {
-		select {
-		case resp := <-ch:
-			require.NotNil(t, resp.GetCreateEvent())
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("expected event not received by subscriber")
-		}
-	}
-}
-
-// testKsvc builds a minimal KService that kserviceToApp can parse.
-func testKsvc(name, ns, rv string) *servingv1.Service {
-	return &servingv1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:            name,
-			Namespace:       ns,
-			ResourceVersion: rv,
-			Annotations:     map[string]string{annotationAppID: "proj/dev/" + name},
-			Labels:          map[string]string{labelAppManaged: "true"},
-		},
-	}
-}
-
-// --- Status message format tests ---
-
-func TestKserviceToApp_StoppedDesiredState(t *testing.T) {
-	c := testClient(t)
-	app := testApp("proj", "dev", "myapp", "nginx:latest")
-
-	require.NoError(t, c.Deploy(context.Background(), app))
-	require.NoError(t, c.Stop(context.Background(), app.Metadata.Id))
-
-	got, err := c.GetApp(context.Background(), app.Metadata.Id)
-	require.NoError(t, err)
-	assert.Equal(t, flyteapp.Spec_DESIRED_STATE_STOPPED, got.GetSpec().GetDesiredState(),
-		"stopped app should have DesiredState=STOPPED in the returned spec")
-}
-
-func TestKserviceToStatus_Messages(t *testing.T) {
-	tests := []struct {
-		name           string
-		ksvc           func() *servingv1.Service
-		wantConditions []struct {
-			phase   flyteapp.Status_DeploymentStatus
-			message string
-		}
-	}{
-		{
-			name: "active — single Ready=True condition",
-			ksvc: func() *servingv1.Service {
-				ksvc := testKsvc("myapp", AppNamespace, "1")
-				ksvc.Status.Status = duckv1.Status{
-					Conditions: duckv1.Conditions{{
-						Type:   servingv1.ServiceConditionReady,
-						Status: corev1.ConditionTrue,
-					}},
-				}
-				return ksvc
-			},
-			wantConditions: []struct {
-				phase   flyteapp.Status_DeploymentStatus
-				message string
-			}{
-				{flyteapp.Status_DEPLOYMENT_STATUS_ACTIVE, "Service is ready"},
-			},
-		},
-		{
-			name: "active — all three sub-conditions True",
-			ksvc: func() *servingv1.Service {
-				ksvc := testKsvc("myapp", AppNamespace, "1")
-				ksvc.Status.Status = duckv1.Status{
-					Conditions: duckv1.Conditions{
-						{Type: servingv1.ServiceConditionConfigurationsReady, Status: corev1.ConditionTrue},
-						{Type: servingv1.ServiceConditionRoutesReady, Status: corev1.ConditionTrue},
-						{Type: servingv1.ServiceConditionReady, Status: corev1.ConditionTrue},
-					},
-				}
-				return ksvc
-			},
-			wantConditions: []struct {
-				phase   flyteapp.Status_DeploymentStatus
-				message string
-			}{
-				{flyteapp.Status_DEPLOYMENT_STATUS_ACTIVE, "Configuration is ready"},
-				{flyteapp.Status_DEPLOYMENT_STATUS_ACTIVE, "Routes are ready"},
-				{flyteapp.Status_DEPLOYMENT_STATUS_ACTIVE, "Service is ready"},
-			},
-		},
-		{
-			name: "deploying — RoutesReady=Unknown skipped, only Ready=Unknown emitted",
-			ksvc: func() *servingv1.Service {
-				ksvc := testKsvc("myapp", AppNamespace, "1")
-				ksvc.Status.LatestCreatedRevisionName = "myapp-00002"
-				ksvc.Status.LatestReadyRevisionName = "myapp-00001"
-				ksvc.Status.MarkRouteNotYetReady()
-				return ksvc
-			},
-			wantConditions: []struct {
-				phase   flyteapp.Status_DeploymentStatus
-				message string
-			}{
-				{flyteapp.Status_DEPLOYMENT_STATUS_PENDING, "TrafficNotMigrated: Traffic is not yet migrated to the latest revision."},
-			},
-		},
-		{
-			name: "stopped",
-			ksvc: func() *servingv1.Service {
-				ksvc := testKsvc("myapp", AppNamespace, "1")
-				if ksvc.Labels == nil {
-					ksvc.Labels = map[string]string{}
-				}
-				ksvc.Labels[labelAppStopped] = "true"
-				return ksvc
-			},
-			wantConditions: []struct {
-				phase   flyteapp.Status_DeploymentStatus
-				message string
-			}{
-				{flyteapp.Status_DEPLOYMENT_STATUS_STOPPED, "App scaled to zero"},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			c := testClient(t)
-			status := c.kserviceToStatus(context.Background(), tt.ksvc())
-			require.NotNil(t, status)
-			require.Len(t, status.Conditions, len(tt.wantConditions))
-			for i, want := range tt.wantConditions {
-				assert.Equal(t, want.phase, status.Conditions[i].DeploymentStatus, "condition[%d] phase", i)
-				assert.Equal(t, want.message, status.Conditions[i].Message, "condition[%d] message", i)
-			}
-		})
-	}
-}
+var _ = time.Second

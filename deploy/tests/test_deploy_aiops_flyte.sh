@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$ROOT_DIR/scripts/deploy-aiops-flyte.sh"
+LEGACY_CLEANUP="$ROOT_DIR/scripts/cleanup-legacy-app-ksvc.sh"
 
 if [[ ! -f "$SCRIPT" ]]; then
   printf 'deploy script is missing: %s\n' "$SCRIPT" >&2
@@ -89,7 +90,7 @@ assert_contains '--set flyte-binary.configuration.co-pilot.image.tag="$IMAGE_TAG
 assert_contains '--set flyte-binary.deployment.extraEnvVars[0].name=AIONE_DOWNLOADER_IMAGE'
 assert_contains '--set flyte-binary.deployment.extraEnvVars[0].value="${DOWNLOADER_IMAGE_REPOSITORY}:${IMAGE_TAG}"'
 assert_contains '--set flyte-binary.console.image.repository=ghcr.io/unionai-oss/flyteconsole-v2'
-assert_contains '--set knative-serving.enabled=false'
+assert_not_contains 'knative-serving.enabled'
 assert_contains 'kubectl -n "$NAMESPACE" rollout status deploy/flyte-binary-console'
 assert_contains 'kubectl -n "$NAMESPACE" rollout status deploy/rustfs'
 assert_contains 'kubectl -n "$NAMESPACE" rollout status deploy/flyte-binary'
@@ -101,6 +102,15 @@ assert_not_contains 'scp'
 assert_not_contains 'REMOTE_ARCHIVE='
 assert_not_contains 'tar -xf "$REMOTE_ARCHIVE"'
 assert_not_contains 'rm -rf "$REMOTE_DIR"'
+
+if [[ ! -x "$LEGACY_CLEANUP" ]]; then
+  printf 'expected executable legacy App cleanup script\n' >&2
+  exit 1
+fi
+if ! grep -q 'services.serving.knative.dev' "$LEGACY_CLEANUP"; then
+  printf 'expected cleanup script to target legacy KServices\n' >&2
+  exit 1
+fi
 
 dockerfile="$(cat "$ROOT_DIR/Dockerfile")"
 if [[ "$dockerfile" != *'FROM --platform=${BUILDPLATFORM} docker.fzyun.io/library/golang:1.26.3-bookworm AS flytebuilder'* ]]; then

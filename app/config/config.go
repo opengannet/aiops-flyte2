@@ -40,7 +40,7 @@ type InternalAppConfig struct {
 	// Enabled controls whether the InternalAppService is started.
 	Enabled bool `json:"enabled" pflag:",Enable app deployment controller"`
 
-	// BaseDomain is the base domain used to generate public URLs for apps.
+	// BaseDomain is the base domain used to generate public URLs for native Apps.
 	// Apps are exposed at "{name}-{project}-{domain}.{base_domain}".
 	BaseDomain string `json:"baseDomain" pflag:",Base domain for app public URLs"`
 
@@ -51,14 +51,18 @@ type InternalAppConfig struct {
 	// DefaultRequestTimeout is the request timeout applied to apps that don't specify one.
 	DefaultRequestTimeout time.Duration `json:"defaultRequestTimeout" pflag:",Default request timeout for apps"`
 
-	// MaxRequestTimeout is the hard cap on request timeout (Knative max is 3600s).
+	// MaxRequestTimeout is the hard cap on app request timeout.
 	MaxRequestTimeout time.Duration `json:"maxRequestTimeout" pflag:",Maximum allowed request timeout for apps"`
 
 	// IngressAppsPort is the port appended to the public app URL (e.g. 30081).
 	// Set to 0 to omit the port when behind a standard 80/443 proxy.
 	IngressAppsPort int `json:"ingressAppsPort" pflag:",Port for app subdomain URLs (0 = omit)"`
 
-	// DefaultEnvVars is a map of environment variables injected into every KService
+	// IngressClassName is the Kubernetes IngressClass used to publish native Apps.
+	// Empty defaults to the cluster's Traefik class.
+	IngressClassName string `json:"ingressClassName" pflag:",IngressClass for native app routes"`
+
+	// DefaultEnvVars is a map of environment variables injected into every App
 	// pod at deploy time, in addition to any env vars specified in the app spec.
 	// Use this to inject cluster-internal endpoints (e.g. _U_EP_OVERRIDE) that app
 	// processes need to connect back to the Flyte manager.

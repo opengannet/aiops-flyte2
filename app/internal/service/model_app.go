@@ -461,7 +461,7 @@ func safeDNSLabel(seed string, maxLen int) string {
 }
 
 func auxResourceName(appID *flyteapp.Identifier, suffix string) string {
-	return safeDNSLabel(appk8s.KServiceName(appID)+"-"+suffix, 63)
+	return safeDNSLabel(appk8s.AppResourceName(appID)+"-"+suffix, 63)
 }
 
 func firstNonEmpty(values ...string) string {
