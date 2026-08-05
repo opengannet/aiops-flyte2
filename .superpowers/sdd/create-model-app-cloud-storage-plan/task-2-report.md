@@ -62,3 +62,37 @@
 ## Concerns
 
 None.
+
+## Fix Round 1
+
+Commit: `fed085c08` (`fix(app): reject conflicting model app storage mounts`)
+
+### RED / GREEN Evidence
+
+- Duplicate mount path
+  - RED: `go test ./app/internal/service -run TestCreateModelApp_RejectsDuplicateCloudStorageMountPath -count=1`
+  - Result: FAIL, `An error is expected but got nil`.
+  - GREEN: same command passed after adding the mount-path `seen` set.
+- Reserved model-cache paths
+  - RED: `go test ./app/internal/service -run TestCreateModelApp_RejectsModelCacheReservedMountPaths -count=1`
+  - Result: both `model_directory` and `hugging_face_cache` subtests failed because the request returned success.
+  - GREEN: same command passed after rejecting `/models` and `/root/.cache/huggingface`.
+- Empty cloud storage ID
+  - The pre-existing validation already rejected an empty ID, so the new test passed against the baseline.
+  - Mutation RED: temporarily removing the ID condition made `TestCreateModelApp_RejectsEmptyCloudStorageID` fail with expected `InvalidArgument (0x3)`, actual `Internal (0xd)`; the condition was immediately restored.
+  - GREEN: `go test ./app/internal/service -run TestCreateModelApp_RejectsEmptyCloudStorageID -count=1` passed.
+
+### Final Verification
+
+- `go test ./app/internal/service -run TestCreateModelApp -count=1`: PASS.
+- `go test ./app/internal/... -count=1`: PASS; internal setup/config compiled and k8s/service tests passed.
+- `git diff --check -- app/internal/service/internal_app_service_test.go app/internal/service/model_app.go`: PASS with only Git LF-to-CRLF notices.
+
+### Self-Review
+
+- Validation runs before repository resolution and Kubernetes deployment.
+- Duplicate paths are rejected after surrounding whitespace is trimmed.
+- Only the two existing model-cache mount paths are reserved.
+- No frontend, API, or user-owned output files were changed.
+
+Concerns: none.
