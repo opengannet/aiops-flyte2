@@ -79,6 +79,37 @@ if ! command -v k3s >/dev/null 2>&1; then
   curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --write-kubeconfig-mode=644" sh -
 fi
 
+ensure_k3s_registries() {
+  cat >/tmp/k3s-registries.yaml.expected <<'EOF'
+mirrors:
+  docker.io:
+    endpoint:
+      - "https://docker.fzyun.io"
+  "docker.ops.fzyun.io:5000":
+    endpoint:
+      - "http://docker.ops.fzyun.io:5000"
+configs:
+  "docker.ops.fzyun.io:5000":
+    tls:
+      insecure_skip_verify: true
+EOF
+
+  if ! sudo test -f /etc/rancher/k3s/registries.yaml \
+    || ! sudo cmp -s /tmp/k3s-registries.yaml.expected /etc/rancher/k3s/registries.yaml; then
+    sudo install -D -m 0644 /tmp/k3s-registries.yaml.expected /etc/rancher/k3s/registries.yaml
+    sudo systemctl restart k3s
+    for _ in {1..60}; do
+      if sudo k3s kubectl get nodes >/dev/null 2>&1; then
+        return 0
+      fi
+      sleep 1
+    done
+    sudo k3s kubectl get nodes >/dev/null
+  fi
+}
+
+ensure_k3s_registries
+
 export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
 sudo k3s kubectl get nodes
 
