@@ -667,7 +667,16 @@ async function createTrainingTaskRun(payload: unknown) {
 }
 
 async function createModelAppRun(payload: unknown) {
-  const request = buildExternalModelAppRequest(payload);
+  const values = buildExternalModelAppValues(payload);
+  const { request } = values;
+  await ensureExternalCloudStorages({
+    client: createCloudStorageClient(),
+    org: values.modelOrg,
+    project: values.project,
+    domain: values.domain,
+    creator: values.sourceOrg || "external-api",
+    mounts: values.cloudStorageMounts,
+  });
   const created = await createAppClient().createModelApp(request);
   const app = created.app;
   const appID = app?.metadata?.id;
@@ -1256,43 +1265,66 @@ function buildExternalTrainingTaskValues(payload: unknown) {
   };
 }
 
-function buildExternalModelAppRequest(payload: unknown) {
+function buildExternalModelAppValues(payload: unknown) {
   const object = getPayloadObject(payload);
   const resources = getPayloadObject(object.resourceDefinition);
+  const internalOrg =
+    process.env.EXTERNAL_API_FLYTE_ORG?.trim() || DEFAULT_AIONE_INTERNAL_ORG;
+  const sourceOrg = stringField(object, "org");
+  const modelOrg = sourceOrg || internalOrg;
+  const project = requiredStringField(object, "project");
+  const domain = requiredStringField(object, "domain");
   const id = stringField(object, "id");
   const code = stringField(object, "code") || id;
   const name = stringField(object, "name") || code || id;
   if (!id && !code && !name) {
     throw statusError("id, code, or name is required", 400);
   }
+  const defaultStorageClass =
+    process.env.EXTERNAL_API_DEFAULT_STORAGE_CLASS?.trim() ||
+    DEFAULT_AIONE_STORAGE_CLASS;
+  const cloudStorageMounts = parseExternalCloudStorageMounts(
+    object.datastores,
+    defaultStorageClass,
+  );
 
-  return create(CreateModelAppRequestSchema, {
-    model: create(ModelAppInputSchema, {
-      org:
-        stringField(object, "org") ||
-        process.env.EXTERNAL_API_FLYTE_ORG?.trim() ||
-        DEFAULT_AIONE_INTERNAL_ORG,
-      project: requiredStringField(object, "project"),
-      domain: requiredStringField(object, "domain"),
-      name,
-      id,
-      code,
-      image: stringField(object, "image") || "vllm",
-      param: stringField(object, "param"),
-      codes: parseExternalModelCodeSources(object.codes),
-      resourceDefinition: create(ModelResourceDefinitionSchema, {
-        cpu: stringField(resources, "cpu"),
-        memory: stringField(resources, "memory"),
-        gpu: nonNegativeIntegerField(
-          resources.gpu,
-          0,
-          "resourceDefinition.gpu",
+  return {
+    sourceOrg,
+    modelOrg,
+    project,
+    domain,
+    cloudStorageMounts,
+    request: create(CreateModelAppRequestSchema, {
+      model: create(ModelAppInputSchema, {
+        org: modelOrg,
+        project,
+        domain,
+        name,
+        id,
+        code,
+        image: stringField(object, "image") || "vllm",
+        param: stringField(object, "param"),
+        codes: parseExternalModelCodeSources(object.codes),
+        resourceDefinition: create(ModelResourceDefinitionSchema, {
+          cpu: stringField(resources, "cpu"),
+          memory: stringField(resources, "memory"),
+          gpu: nonNegativeIntegerField(
+            resources.gpu,
+            0,
+            "resourceDefinition.gpu",
+          ),
+          gpuKey:
+            stringField(resources, "gpu_key") || stringField(resources, "gpuKey"),
+        }),
+        cloudStorageMounts: cloudStorageMounts.map((mount) =>
+          create(CloudStorageMountSchema, {
+            cloudStorageId: mount.cloudStorageId,
+            mountPath: mount.mountPath,
+          }),
         ),
-        gpuKey:
-          stringField(resources, "gpu_key") || stringField(resources, "gpuKey"),
       }),
     }),
-  });
+  };
 }
 
 function parseExternalModelCodeSources(value: unknown) {

@@ -759,6 +759,65 @@ describe("aione external typed run route", () => {
     });
   });
 
+  it("registers model datastores and passes their mounts to the model app", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("http://localhost/v2/api/aione/model/run", {
+        method: "POST",
+        headers: { authorization: "Bearer external-key" },
+        body: JSON.stringify({
+          ...modelPayload,
+          datastores: [
+            {
+              id: "stg-external-1",
+              path: "/mnt/models",
+              size: 2,
+            },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({ type: "model" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(ensureCloudStorageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: expect.objectContaining({
+          org: "external-system",
+          project: "aione",
+          domain: "development",
+          id: "stg-external-1",
+        }),
+        cloudStorage: expect.objectContaining({
+          name: "stg-external-1",
+          description: "Auto-registered from external API datastore",
+          sizeGb: 2,
+          storageClassName: "bj1-ebs",
+        }),
+        creator: "external-system",
+      }),
+    );
+    expect(createModelAppMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: expect.objectContaining({
+          org: "external-system",
+          cloudStorageMounts: [
+            expect.objectContaining({
+              cloudStorageId: "stg-external-1",
+              mountPath: "/mnt/models",
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(ensureCloudStorageMock.mock.calls[0][0].id.org).toBe(
+      createModelAppMock.mock.calls[0][0].model.org,
+    );
+    expect(ensureCloudStorageMock.mock.invocationCallOrder[0]).toBeLessThan(
+      createModelAppMock.mock.invocationCallOrder[0],
+    );
+  });
+
   it("requires cmd for task runs", async () => {
     const { POST } = await import("./route");
     const response = await POST(
