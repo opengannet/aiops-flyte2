@@ -161,6 +161,56 @@ describe("CreateModelAppPage", () => {
     ]);
   });
 
+  it("preserves a quickly created storage when the initial list resolves later", async () => {
+    let resolveInitialList: (value: unknown) => void = () => undefined;
+    const initialList = new Promise((resolve) => {
+      resolveInitialList = resolve;
+    });
+    mocks.listCloudStorages.mockReturnValueOnce(initialList);
+    const user = userEvent.setup();
+    render(<CreateModelAppPage />);
+
+    await waitFor(() =>
+      expect(mocks.listCloudStorages).toHaveBeenCalledTimes(1),
+    );
+    await user.click(screen.getByRole("button", { name: "快速新建" }));
+    await user.type(screen.getByLabelText("云存储名称"), "新模型盘");
+    await user.click(screen.getByRole("button", { name: "新建并选择" }));
+    await waitFor(() =>
+      expect(mocks.createCloudStorage).toHaveBeenCalledTimes(1),
+    );
+
+    await act(async () => {
+      resolveInitialList({
+        cloudStorages: [
+          create(CloudStorageSchema, {
+            id: { id: "storage-old" },
+            name: "旧列表存储",
+            sizeGb: 10,
+            storageClassName: "standard",
+          }),
+        ],
+        token: "",
+      });
+      await initialList;
+    });
+
+    expect(await screen.findByText("旧列表存储")).toBeVisible();
+    expect(screen.getByText("新模型盘")).toBeVisible();
+    expect(screen.getByRole("checkbox", { name: /新模型盘/ })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "创建" }));
+    await waitFor(() => expect(mocks.createModelApp).toHaveBeenCalledTimes(1));
+    expect(
+      mocks.createModelApp.mock.calls[0][0].model.cloudStorageMounts,
+    ).toEqual([
+      expect.objectContaining({
+        cloudStorageId: "storage-new",
+        mountPath: "/mnt/storage-new",
+      }),
+    ]);
+  });
+
   it("loads every cloud storage page and allows selecting a later page", async () => {
     mocks.listCloudStorages.mockImplementation((request) => {
       const token = request.request?.token ?? "";

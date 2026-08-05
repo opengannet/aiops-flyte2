@@ -113,7 +113,16 @@ export function CreateModelAppPage() {
           token = nextToken;
         }
         if (!cancelled) {
-          setCloudStorages(allCloudStorages);
+          setCloudStorages((current) => {
+            const byId = new Map<string, CloudStorage>();
+            for (const storage of [...allCloudStorages, ...current]) {
+              const storageId = storage.id?.id;
+              if (storageId) {
+                byId.set(storageId, storage);
+              }
+            }
+            return [...byId.values()];
+          });
         }
       } catch (loadError) {
         console.error("Error loading cloud storages", loadError);
