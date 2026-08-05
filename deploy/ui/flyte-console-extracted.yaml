@@ -136,6 +136,10 @@ spec:
               value: "3000"
             - name: FLYTE_API_ORIGIN
               value: http://flyte-binary-http:8090
+            - name: APP_PROXY_BASE_DOMAIN
+              value: localhost
+            - name: APP_PROXY_TARGET_ORIGIN
+              value: http://kourier-internal.kourier-system.svc.cluster.local
             - name: HAWK_API_URL
               value: https://hawk.ops.fzyun.io
             - name: HAWK_PVC_HISTORY_DAYS
