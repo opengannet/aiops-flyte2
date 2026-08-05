@@ -16,6 +16,7 @@ import {
 } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_service_pb";
 import { AppService } from "@/gen/flyteidl2/app/app_service_pb";
 import { ProjectIdentifierSchema } from "@/gen/flyteidl2/common/identifier_pb";
+import { ListRequestSchema } from "@/gen/flyteidl2/common/list_pb";
 import { useConnectRpcClient } from "@/hooks/useConnectRpc";
 import { useOrg } from "@/hooks/useOrg";
 import { create } from "@bufbuild/protobuf";
@@ -68,25 +69,45 @@ export function CreateModelAppPage() {
   const cloudStorageListHref = `/domain/${params.domain}/project/${params.project}/cloud-storages`;
   const projectId = useMemo(
     () =>
-      create(ProjectIdentifierSchema, {
-        organization: org,
-        domain: params.domain,
-        name: params.project,
-      }),
+      org && params.domain && params.project
+        ? create(ProjectIdentifierSchema, {
+            organization: org,
+            domain: params.domain,
+            name: params.project,
+          })
+        : undefined,
     [org, params.domain, params.project],
   );
 
   useEffect(() => {
     let cancelled = false;
+    if (!projectId) {
+      return;
+    }
     const loadCloudStorages = async () => {
       setIsLoadingCloudStorages(true);
       setCloudStorageError("");
       try {
-        const response = await cloudStorageClient.listCloudStorages(
-          create(ListCloudStoragesRequestSchema, { project: projectId }),
-        );
+        const allCloudStorages: CloudStorage[] = [];
+        const seenTokens = new Set<string>();
+        let token = "";
+        while (true) {
+          const response = await cloudStorageClient.listCloudStorages(
+            create(ListCloudStoragesRequestSchema, {
+              project: projectId,
+              request: create(ListRequestSchema, { limit: 50, token }),
+            }),
+          );
+          allCloudStorages.push(...(response.cloudStorages ?? []));
+          const nextToken = response.token;
+          if (!nextToken || seenTokens.has(nextToken)) {
+            break;
+          }
+          seenTokens.add(nextToken);
+          token = nextToken;
+        }
         if (!cancelled) {
-          setCloudStorages(response.cloudStorages ?? []);
+          setCloudStorages(allCloudStorages);
         }
       } catch (loadError) {
         console.error("Error loading cloud storages", loadError);
@@ -146,6 +167,10 @@ export function CreateModelAppPage() {
 
   const createCloudStorage = async () => {
     setQuickCreateError("");
+    if (!projectId) {
+      setQuickCreateError("项目上下文未加载完成");
+      return;
+    }
     const name = quickCreateValues.name.trim();
     if (!name) {
       setQuickCreateError("请输入云存储名称");
@@ -209,6 +234,10 @@ export function CreateModelAppPage() {
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
+    if (!projectId) {
+      setError("项目上下文未加载完成");
+      return;
+    }
     if (
       values.cloudStorageMounts.some(
         (mount) => !mount.mountPath.trim().startsWith("/"),
@@ -261,7 +290,13 @@ export function CreateModelAppPage() {
                 <Button href={createHref} outline>
                   取消
                 </Button>
-                <Button color="union" disabled={isSubmitting} type="submit">
+                <Button
+                  color="union"
+                  disabled={
+                    isSubmitting || isCreatingCloudStorage || !projectId
+                  }
+                  type="submit"
+                >
                   <PlusIcon data-slot="icon" />
                   {isSubmitting ? "创建中" : "创建"}
                 </Button>
@@ -406,6 +441,7 @@ export function CreateModelAppPage() {
                   </Button>
                   <Button
                     outline
+                    disabled={!projectId || isCreatingCloudStorage}
                     size="sm"
                     type="button"
                     onClick={() => {
@@ -420,7 +456,21 @@ export function CreateModelAppPage() {
               </div>
 
               {isQuickCreateOpen && (
-                <div className="grid gap-4 border border-(--system-gray-4) p-4 lg:grid-cols-2">
+                <div
+                  className="grid gap-4 border border-(--system-gray-4) p-4 lg:grid-cols-2"
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      (event.target instanceof HTMLInputElement ||
+                        event.target instanceof HTMLTextAreaElement)
+                    ) {
+                      event.preventDefault();
+                      if (!isCreatingCloudStorage && projectId) {
+                        void createCloudStorage();
+                      }
+                    }
+                  }}
+                >
                   <Field label="云存储名称">
                     <input
                       className={inputClassName}
@@ -475,7 +525,7 @@ export function CreateModelAppPage() {
                   <div className="flex items-center gap-3 lg:col-span-2">
                     <Button
                       color="union"
-                      disabled={isCreatingCloudStorage}
+                      disabled={isCreatingCloudStorage || !projectId}
                       size="sm"
                       type="button"
                       onClick={createCloudStorage}
@@ -494,7 +544,7 @@ export function CreateModelAppPage() {
               {cloudStorageError && (
                 <div className="text-sm text-red-500">{cloudStorageError}</div>
               )}
-              {isLoadingCloudStorages ? (
+              {cloudStorageError ? null : isLoadingCloudStorages ? (
                 <div className="text-sm dark:text-(--system-gray-6)">
                   加载中
                 </div>

@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => {
     createModelApp,
     invalidateQueries: vi.fn(),
     listCloudStorages,
+    org: "aione",
     push: vi.fn(),
   };
 });
@@ -39,7 +40,7 @@ vi.mock("@/hooks/useConnectRpc", () => ({
       ? mocks.cloudStorageClient
       : mocks.appClient,
 }));
-vi.mock("@/hooks/useOrg", () => ({ useOrg: () => "aione" }));
+vi.mock("@/hooks/useOrg", () => ({ useOrg: () => mocks.org }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
 }));
@@ -51,6 +52,7 @@ vi.mock("next/navigation", () => ({
 describe("CreateModelAppPage", () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.org = "aione";
     mocks.listCloudStorages.mockResolvedValue({
       cloudStorages: [
         create(CloudStorageSchema, {
@@ -64,6 +66,7 @@ describe("CreateModelAppPage", () => {
           creator: "tester",
         }),
       ],
+      token: "",
     });
     mocks.createModelApp.mockResolvedValue({
       app: { metadata: { id: { name: "qwen-vllm" } } },
@@ -84,6 +87,7 @@ describe("CreateModelAppPage", () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
   });
 
   it("uses Chinese labels and submits a selected existing cloud storage", async () => {
@@ -144,5 +148,133 @@ describe("CreateModelAppPage", () => {
     });
     expect(await screen.findByDisplayValue("/mnt/storage-new")).toBeVisible();
     expect(screen.getByRole("checkbox", { name: /新模型盘/ })).toBeChecked();
+
+    await user.click(screen.getByRole("button", { name: "创建" }));
+    await waitFor(() => expect(mocks.createModelApp).toHaveBeenCalledTimes(1));
+    expect(
+      mocks.createModelApp.mock.calls[0][0].model.cloudStorageMounts,
+    ).toEqual([
+      expect.objectContaining({
+        cloudStorageId: "storage-new",
+        mountPath: "/mnt/storage-new",
+      }),
+    ]);
+  });
+
+  it("loads every cloud storage page and allows selecting a later page", async () => {
+    mocks.listCloudStorages.mockImplementation((request) => {
+      const token = request.request?.token ?? "";
+      return Promise.resolve(
+        token === "page-2"
+          ? {
+              cloudStorages: [
+                create(CloudStorageSchema, {
+                  id: { id: "storage-b" },
+                  name: "第二页存储",
+                  sizeGb: 40,
+                  storageClassName: "standard",
+                }),
+              ],
+              token: "",
+            }
+          : {
+              cloudStorages: [
+                create(CloudStorageSchema, {
+                  id: { id: "storage-a" },
+                  name: "第一页存储",
+                  sizeGb: 20,
+                  storageClassName: "fast-ssd",
+                }),
+              ],
+              token: "page-2",
+            },
+      );
+    });
+    const user = userEvent.setup();
+    render(<CreateModelAppPage />);
+
+    expect(await screen.findByText("第一页存储")).toBeVisible();
+    expect(await screen.findByText("第二页存储")).toBeVisible();
+    expect(mocks.listCloudStorages).toHaveBeenCalledTimes(2);
+
+    await user.click(screen.getByRole("checkbox", { name: /第二页存储/ }));
+    expect(screen.getByDisplayValue("/mnt/storage-b")).toBeVisible();
+  });
+
+  it("stops pagination when the server repeats a token", async () => {
+    mocks.listCloudStorages
+      .mockResolvedValueOnce({
+        cloudStorages: [],
+        token: "repeat-token",
+      })
+      .mockResolvedValueOnce({
+        cloudStorages: [],
+        token: "repeat-token",
+      });
+
+    render(<CreateModelAppPage />);
+
+    await waitFor(() =>
+      expect(mocks.listCloudStorages).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("does not call project RPCs or enable creation before org is ready", async () => {
+    mocks.org = "";
+    render(<CreateModelAppPage />);
+
+    await waitFor(() => expect(mocks.listCloudStorages).not.toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "快速新建" })).toBeDisabled();
+  });
+
+  it("uses Enter in quick creation without submitting the model form", async () => {
+    const user = userEvent.setup();
+    render(<CreateModelAppPage />);
+
+    await screen.findByText("模型缓存");
+    await user.click(screen.getByRole("button", { name: "快速新建" }));
+    await user.type(screen.getByLabelText("云存储名称"), "Enter 创建{Enter}");
+
+    await waitFor(() =>
+      expect(mocks.createCloudStorage).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.createModelApp).not.toHaveBeenCalled();
+  });
+
+  it("disables model submission while quick creation is pending", async () => {
+    let resolveCreate: (value: unknown) => void = () => undefined;
+    mocks.createCloudStorage.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCreate = resolve;
+      }),
+    );
+    const user = userEvent.setup();
+    render(<CreateModelAppPage />);
+
+    await screen.findByText("模型缓存");
+    await user.click(screen.getByRole("button", { name: "快速新建" }));
+    await user.type(screen.getByLabelText("云存储名称"), "等待创建");
+    await user.click(screen.getByRole("button", { name: "新建并选择" }));
+
+    expect(screen.getByRole("button", { name: "创建" })).toBeDisabled();
+    resolveCreate({
+      cloudStorage: create(CloudStorageSchema, {
+        id: { id: "storage-pending" },
+        name: "等待创建",
+        sizeGb: 1,
+      }),
+    });
+    expect(await screen.findByText("等待创建")).toBeVisible();
+  });
+
+  it("does not show an empty state when loading cloud storage fails", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.listCloudStorages.mockRejectedValue(new Error("unavailable"));
+
+    render(<CreateModelAppPage />);
+
+    expect(await screen.findByText("加载云存储失败")).toBeVisible();
+    expect(screen.queryByText("暂无可用云存储")).not.toBeInTheDocument();
   });
 });
