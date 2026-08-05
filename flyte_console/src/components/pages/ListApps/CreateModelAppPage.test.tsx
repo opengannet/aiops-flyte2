@@ -4,7 +4,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { create } from "@bufbuild/protobuf";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -217,6 +217,30 @@ describe("CreateModelAppPage", () => {
     await waitFor(() =>
       expect(mocks.listCloudStorages).toHaveBeenCalledTimes(2),
     );
+  });
+
+  it("stops pagination after unmount while the current page is pending", async () => {
+    let resolveFirstPage: (value: unknown) => void = () => undefined;
+    const firstPage = new Promise((resolve) => {
+      resolveFirstPage = resolve;
+    });
+    mocks.listCloudStorages
+      .mockReturnValueOnce(firstPage)
+      .mockResolvedValue({ cloudStorages: [], token: "" });
+
+    const { unmount } = render(<CreateModelAppPage />);
+    await waitFor(() =>
+      expect(mocks.listCloudStorages).toHaveBeenCalledTimes(1),
+    );
+    unmount();
+
+    await act(async () => {
+      resolveFirstPage({ cloudStorages: [], token: "page-2" });
+      await firstPage;
+      await Promise.resolve();
+    });
+
+    expect(mocks.listCloudStorages).toHaveBeenCalledTimes(1);
   });
 
   it("does not call project RPCs or enable creation before org is ready", async () => {

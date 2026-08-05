@@ -92,12 +92,18 @@ export function CreateModelAppPage() {
         const seenTokens = new Set<string>();
         let token = "";
         while (true) {
+          if (cancelled) {
+            break;
+          }
           const response = await cloudStorageClient.listCloudStorages(
             create(ListCloudStoragesRequestSchema, {
               project: projectId,
               request: create(ListRequestSchema, { limit: 50, token }),
             }),
           );
+          if (cancelled) {
+            break;
+          }
           allCloudStorages.push(...(response.cloudStorages ?? []));
           const nextToken = response.token;
           if (!nextToken || seenTokens.has(nextToken)) {
