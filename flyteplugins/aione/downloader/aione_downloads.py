@@ -2,6 +2,7 @@ import base64
 import json
 import os
 import stat
+import subprocess
 import sys
 import zipfile
 
@@ -42,23 +43,23 @@ class WorkflowInputs:
 
 
 def mlworkflow() -> None:
-    flush_print("\n初始化...")
+    flush_print("Initializing downloads...")
     env_params = os.getenv("AIONE_PARAMS")
     if not env_params:
         raise ValueError("AIONE_PARAMS is required")
 
     params = json.loads(base64.b64decode(env_params).decode("utf-8"))
     mltask(_inputs(params))
-    flush_print("\n初始化完成.")
+    flush_print("Downloads completed")
 
 
 def mltask(task_datas: WorkflowInputs) -> None:
     for git_data in task_datas.codes:
-        flush_print("\n代码库下载")
+        flush_print("Downloading code/model repository")
         _clone_git(data=git_data)
 
     for s3_data in task_datas.s3datas:
-        flush_print("\n数据集下载")
+        flush_print("Downloading dataset from object storage")
         _pull_oss(s3_data)
 
 
@@ -92,27 +93,100 @@ def flush_print(*args: Any, **kwargs: Any) -> None:
 
 
 def _clone_git(data: GitData) -> None:
-    headers = {"Private-Token": data.access_token}
+    if not data.repo_url:
+        raise ValueError("repository URL is required")
+    if not data.target_dir:
+        raise ValueError("target directory is required")
+
+    if _download_gitlab_archive(data):
+        return
+    if _download_gitea_archive(data):
+        return
+    _git_clone_fallback(data)
+
+
+def _download_gitlab_archive(data: GitData) -> bool:
     repo_root, project_path = _parse_git_url(data.repo_url)
     gitlab_rest_api_root = f"{repo_root}/api/v4/projects"
-    project_path = quote(project_path, safe="")
-    url = f"{gitlab_rest_api_root}/{project_path}/repository/{ARCHIVE_FILENAME}?sha={data.branch}"
+    encoded_project_path = quote(project_path, safe="")
+    encoded_branch = quote(data.branch, safe="")
+    url = f"{gitlab_rest_api_root}/{encoded_project_path}/repository/{ARCHIVE_FILENAME}?sha={encoded_branch}"
+    headers = {"Private-Token": data.access_token} if data.access_token else {}
+    return _download_archive("GitLab", url, headers, data.target_dir)
+
+
+def _download_gitea_archive(data: GitData) -> bool:
+    repo_root, project_path = _parse_git_url(data.repo_url)
+    parts = [p for p in project_path.split("/") if p]
+    if len(parts) < 2:
+        return False
+    owner, repo = parts[-2], parts[-1]
+    encoded_owner = quote(owner, safe="")
+    encoded_repo = quote(repo, safe="")
+    encoded_branch = quote(data.branch, safe="")
+    url = f"{repo_root}/api/v1/repos/{encoded_owner}/{encoded_repo}/archive/{encoded_branch}.zip"
+    headers = {"Authorization": f"token {data.access_token}"} if data.access_token else {}
+    return _download_archive("Gitea", url, headers, data.target_dir)
+
+
+def _download_archive(source_name: str, url: str, headers: dict[str, str], target_dir: str) -> bool:
     response = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
     if response.status_code != 200:
-        raise RuntimeError(f"代码下载失败，状态码: {response.status_code}")
+        flush_print(f"{source_name} archive download returned status {response.status_code}; trying next strategy")
+        return False
 
-    target_file = _save_archive_file(data.target_dir, response)
-    flush_print(f"代码已成功下载并保存为 {target_file}")
-    _unzip(data.target_dir)
+    target_file = _save_archive_file(target_dir, response)
+    flush_print(f"Archive downloaded to {target_file}")
+    _unzip(target_dir)
+    return True
+
+
+def _git_clone_fallback(data: GitData) -> None:
+    if os.path.exists(data.target_dir) and os.listdir(data.target_dir):
+        flush_print(f"Target directory {data.target_dir} is not empty; reusing existing contents")
+        _make_tree_readable(data.target_dir)
+        return
+
+    parent = os.path.dirname(data.target_dir)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    clone_url = _repo_url_with_token(data.repo_url, data.access_token)
+    command = ["git", "clone", "--depth", "1", "--branch", data.branch, clone_url, data.target_dir]
+    flush_print(f"Cloning repository {_redact_repo_url(data.repo_url)} at branch {data.branch}")
+    try:
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except FileNotFoundError as exc:
+        raise RuntimeError("git is required for repository clone fallback") from exc
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"git clone fallback failed with exit code {exc.returncode}") from exc
+    _make_tree_readable(data.target_dir)
+
+
+def _repo_url_with_token(repo_url: str, token: str) -> str:
+    if not token:
+        return repo_url
+    parsed = urlparse(repo_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return repo_url
+    quoted_token = quote(token, safe="")
+    return parsed._replace(netloc=f"oauth2:{quoted_token}@{parsed.netloc}").geturl()
+
+
+def _redact_repo_url(repo_url: str) -> str:
+    parsed = urlparse(repo_url)
+    if parsed.username or parsed.password:
+        return parsed._replace(netloc=parsed.hostname or "").geturl()
+    return repo_url
 
 
 def _save_archive_file(target_dir: str, response: requests.Response) -> str:
     target_dir = target_dir.rstrip("/")
-    flush_print(f"检查目录并清理/创建 {target_dir}")
+    flush_print(f"Ensuring target directory {target_dir}")
     _ensure_dir(target_dir)
 
     target_filepath = f"{target_dir}/{ARCHIVE_FILENAME}"
-    flush_print(f"保存文件 {target_filepath}")
+    flush_print(f"Saving archive file {target_filepath}")
     with open(target_filepath, "wb") as f:
         f.write(response.content)
     _make_tree_readable(target_dir)
@@ -157,16 +231,16 @@ def _unzip(target_dir: str) -> None:
 
     os.remove(archive_file_path)
     _make_tree_readable(target_dir)
-    flush_print(f"代码压缩文件已解压到: {target_dir}，并已删除压缩文件")
+    flush_print(f"Archive extracted to {target_dir}")
 
 
 def _parse_git_url(repo_url: str) -> tuple[str, str]:
     parsed_url = urlparse(repo_url)
-    gitlab_root = f"{parsed_url.scheme}://{parsed_url.netloc}"
+    git_root = f"{parsed_url.scheme}://{parsed_url.netloc}"
     path = parsed_url.path.strip("/")
     if path.endswith(".git"):
         path = path[:-4]
-    return gitlab_root, path
+    return git_root, path
 
 
 def _pull_oss(data: S3Data) -> None:
@@ -179,7 +253,7 @@ def _pull_oss(data: S3Data) -> None:
     _ensure_dir(data.target_dir)
     result = _download_directory(client, data)
     _make_tree_readable(data.target_dir)
-    flush_print(f"数据集已下载到: {data.target_dir}\n{result}")
+    flush_print(f"Dataset downloaded to {data.target_dir}\n{result}")
 
 
 def _download_directory(minio_client: Minio, data: S3Data) -> str:
@@ -200,7 +274,7 @@ def _download_directory(minio_client: Minio, data: S3Data) -> str:
         relative_path = obj_path
         if data.bucket_path:
             prefix = data.bucket_path.rstrip("/") + "/"
-            relative_path = obj_path[len(prefix):] if obj_path.startswith(prefix) else os.path.basename(obj_path)
+            relative_path = obj_path[len(prefix) :] if obj_path.startswith(prefix) else os.path.basename(obj_path)
 
         output_file = os.path.join(data.target_dir, relative_path)
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
@@ -214,5 +288,5 @@ if __name__ == "__main__":
     try:
         mlworkflow()
     except Exception as exc:
-        flush_print(f"下载失败: {exc}")
+        flush_print(f"Download failed: {exc}")
         sys.exit(1)

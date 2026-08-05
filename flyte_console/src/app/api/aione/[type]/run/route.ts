@@ -6,7 +6,7 @@ import { NextRequest } from "next/server";
 import { authenticateAioneRequest } from "@/server/aione/helpers";
 import {
   createAioneExternalRun,
-  parseAioneExternalType,
+  parseAioneExternalRunType,
 } from "@/server/aione/external-api";
 import { logAioneExternalApiRequest } from "@/server/aione/debug";
 import { errorEnvelope, okEnvelope, statusError } from "@/server/http/response";
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const { type } = await context.params;
-    const externalType = parseAioneExternalType(type ?? "");
+    const externalType = parseAioneExternalRunType(type ?? "");
     const payload = await request.json();
     logAioneExternalApiRequest({
       request,

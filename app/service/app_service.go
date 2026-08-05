@@ -53,6 +53,23 @@ func (s *AppService) Create(
 	return resp, nil
 }
 
+// CreateModelApp forwards to InternalAppService and invalidates the cache entry.
+func (s *AppService) CreateModelApp(
+	ctx context.Context,
+	req *connect.Request[flyteapp.CreateModelAppRequest],
+) (*connect.Response[flyteapp.CreateResponse], error) {
+	resp, err := s.internalClient.CreateModelApp(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if s.cache != nil {
+		if app := resp.Msg.GetApp(); app.GetMetadata().GetId() != nil {
+			s.cache.Remove(cacheKey(app.GetMetadata().GetId()))
+		}
+	}
+	return resp, nil
+}
+
 // Get returns the app, using the cache on hit and calling InternalAppService on miss.
 func (s *AppService) Get(
 	ctx context.Context,

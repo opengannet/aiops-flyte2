@@ -164,6 +164,534 @@ var _ interface {
 	ErrorName() string
 } = CreateRequestValidationError{}
 
+// Validate checks the field values on CreateModelAppRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *CreateModelAppRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CreateModelAppRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CreateModelAppRequestMultiError, or nil if none found.
+func (m *CreateModelAppRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CreateModelAppRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetModel()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CreateModelAppRequestValidationError{
+					field:  "Model",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CreateModelAppRequestValidationError{
+					field:  "Model",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetModel()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CreateModelAppRequestValidationError{
+				field:  "Model",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return CreateModelAppRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// CreateModelAppRequestMultiError is an error wrapping multiple validation
+// errors returned by CreateModelAppRequest.ValidateAll() if the designated
+// constraints aren't met.
+type CreateModelAppRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CreateModelAppRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CreateModelAppRequestMultiError) AllErrors() []error { return m }
+
+// CreateModelAppRequestValidationError is the validation error returned by
+// CreateModelAppRequest.Validate if the designated constraints aren't met.
+type CreateModelAppRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CreateModelAppRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CreateModelAppRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CreateModelAppRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CreateModelAppRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CreateModelAppRequestValidationError) ErrorName() string {
+	return "CreateModelAppRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CreateModelAppRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCreateModelAppRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CreateModelAppRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CreateModelAppRequestValidationError{}
+
+// Validate checks the field values on ModelAppInput with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *ModelAppInput) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ModelAppInput with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in ModelAppInputMultiError, or
+// nil if none found.
+func (m *ModelAppInput) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ModelAppInput) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Org
+
+	// no validation rules for Project
+
+	// no validation rules for Domain
+
+	// no validation rules for Name
+
+	// no validation rules for Id
+
+	// no validation rules for Code
+
+	// no validation rules for Image
+
+	// no validation rules for Param
+
+	for idx, item := range m.GetCodes() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ModelAppInputValidationError{
+						field:  fmt.Sprintf("Codes[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ModelAppInputValidationError{
+						field:  fmt.Sprintf("Codes[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ModelAppInputValidationError{
+					field:  fmt.Sprintf("Codes[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if all {
+		switch v := interface{}(m.GetResourceDefinition()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ModelAppInputValidationError{
+					field:  "ResourceDefinition",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ModelAppInputValidationError{
+					field:  "ResourceDefinition",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResourceDefinition()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ModelAppInputValidationError{
+				field:  "ResourceDefinition",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return ModelAppInputMultiError(errors)
+	}
+
+	return nil
+}
+
+// ModelAppInputMultiError is an error wrapping multiple validation errors
+// returned by ModelAppInput.ValidateAll() if the designated constraints
+// aren't met.
+type ModelAppInputMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ModelAppInputMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ModelAppInputMultiError) AllErrors() []error { return m }
+
+// ModelAppInputValidationError is the validation error returned by
+// ModelAppInput.Validate if the designated constraints aren't met.
+type ModelAppInputValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ModelAppInputValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ModelAppInputValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ModelAppInputValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ModelAppInputValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ModelAppInputValidationError) ErrorName() string { return "ModelAppInputValidationError" }
+
+// Error satisfies the builtin error interface
+func (e ModelAppInputValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sModelAppInput.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ModelAppInputValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ModelAppInputValidationError{}
+
+// Validate checks the field values on ModelCodeSource with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *ModelCodeSource) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ModelCodeSource with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ModelCodeSourceMultiError, or nil if none found.
+func (m *ModelCodeSource) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ModelCodeSource) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Id
+
+	// no validation rules for Branch
+
+	// no validation rules for Path
+
+	// no validation rules for Token
+
+	if len(errors) > 0 {
+		return ModelCodeSourceMultiError(errors)
+	}
+
+	return nil
+}
+
+// ModelCodeSourceMultiError is an error wrapping multiple validation errors
+// returned by ModelCodeSource.ValidateAll() if the designated constraints
+// aren't met.
+type ModelCodeSourceMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ModelCodeSourceMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ModelCodeSourceMultiError) AllErrors() []error { return m }
+
+// ModelCodeSourceValidationError is the validation error returned by
+// ModelCodeSource.Validate if the designated constraints aren't met.
+type ModelCodeSourceValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ModelCodeSourceValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ModelCodeSourceValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ModelCodeSourceValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ModelCodeSourceValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ModelCodeSourceValidationError) ErrorName() string { return "ModelCodeSourceValidationError" }
+
+// Error satisfies the builtin error interface
+func (e ModelCodeSourceValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sModelCodeSource.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ModelCodeSourceValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ModelCodeSourceValidationError{}
+
+// Validate checks the field values on ModelResourceDefinition with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ModelResourceDefinition) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ModelResourceDefinition with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ModelResourceDefinitionMultiError, or nil if none found.
+func (m *ModelResourceDefinition) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ModelResourceDefinition) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Cpu
+
+	// no validation rules for Memory
+
+	// no validation rules for Gpu
+
+	// no validation rules for GpuKey
+
+	if len(errors) > 0 {
+		return ModelResourceDefinitionMultiError(errors)
+	}
+
+	return nil
+}
+
+// ModelResourceDefinitionMultiError is an error wrapping multiple validation
+// errors returned by ModelResourceDefinition.ValidateAll() if the designated
+// constraints aren't met.
+type ModelResourceDefinitionMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ModelResourceDefinitionMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ModelResourceDefinitionMultiError) AllErrors() []error { return m }
+
+// ModelResourceDefinitionValidationError is the validation error returned by
+// ModelResourceDefinition.Validate if the designated constraints aren't met.
+type ModelResourceDefinitionValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ModelResourceDefinitionValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ModelResourceDefinitionValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ModelResourceDefinitionValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ModelResourceDefinitionValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ModelResourceDefinitionValidationError) ErrorName() string {
+	return "ModelResourceDefinitionValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ModelResourceDefinitionValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sModelResourceDefinition.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ModelResourceDefinitionValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ModelResourceDefinitionValidationError{}
+
 // Validate checks the field values on CreateResponse with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.

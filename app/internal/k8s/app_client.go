@@ -26,15 +26,17 @@ import (
 	"github.com/flyteorg/flyte/v2/app/internal/config"
 	"github.com/flyteorg/flyte/v2/flytestdlib/k8s"
 	"github.com/flyteorg/flyte/v2/flytestdlib/logger"
+	"github.com/flyteorg/flyte/v2/flytestdlib/utils"
 	flyteapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app"
 	flytecore "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/core"
 )
 
 const (
-	labelAppManaged = "flyte.org/app-managed"
-	labelProject    = "flyte.org/project"
-	labelDomain     = "flyte.org/domain"
-	labelAppName    = "flyte.org/app-name"
+	labelAppManaged   = "flyte.org/app-managed"
+	labelProject      = "flyte.org/project"
+	labelDomain       = "flyte.org/domain"
+	labelAppName      = "flyte.org/app-name"
+	labelAppAuxiliary = "flyte.org/app-auxiliary"
 
 	// labelKnativeService is set by Knative on every Deployment/Pod it creates
 	// from a KService. Its value equals the KService name. We use this to find
@@ -62,11 +64,22 @@ const (
 	maxKServiceNameLen = 63
 )
 
+// AppAuxResources contains Kubernetes resources owned by an App outside of the
+// Knative KService, such as downloader Secrets and model cache PVCs.
+type AppAuxResources struct {
+	Secrets                []*corev1.Secret
+	PersistentVolumeClaims []*corev1.PersistentVolumeClaim
+}
+
 // AppK8sClientInterface defines the KService lifecycle operations for the App service.
 type AppK8sClientInterface interface {
 	// Deploy creates or updates the KService for the given app. Idempotent — skips
 	// the update if the spec SHA annotation is unchanged.
 	Deploy(ctx context.Context, app *flyteapp.App) error
+
+	// DeployWithResources creates or updates App-owned auxiliary resources before
+	// creating/updating the KService for the given app.
+	DeployWithResources(ctx context.Context, app *flyteapp.App, resources AppAuxResources) error
 
 	// Stop scales the KService to zero and makes it cluster-local (not published to external gateway).
 	// The KService CRD is kept so the app can be restarted later.
@@ -143,12 +156,22 @@ const defaultOrg = "flyte"
 
 // Deploy creates or updates the KService for the given app.
 func (c *AppK8sClient) Deploy(ctx context.Context, app *flyteapp.App) error {
+	return c.DeployWithResources(ctx, app, AppAuxResources{})
+}
+
+// DeployWithResources creates or updates auxiliary resources, then creates or
+// updates the KService for the given app.
+func (c *AppK8sClient) DeployWithResources(ctx context.Context, app *flyteapp.App, resources AppAuxResources) error {
 	appID := app.GetMetadata().GetId()
 	ns := AppNamespace
 	name := KServiceName(appID)
 
 	if err := k8s.EnsureNamespaceExists(ctx, c.k8sClient, ns); err != nil {
 		return fmt.Errorf("failed to ensure namespace %s: %w", ns, err)
+	}
+
+	if err := c.ensureAuxResources(ctx, appID, resources); err != nil {
+		return fmt.Errorf("failed to ensure auxiliary resources for app %s: %w", name, err)
 	}
 
 	ksvc, err := c.buildKService(app)
@@ -258,13 +281,146 @@ func (c *AppK8sClient) Delete(ctx context.Context, appID *flyteapp.Identifier) e
 	ksvc.Name = name
 	ksvc.Namespace = ns
 	if err := c.k8sClient.Delete(ctx, ksvc); err != nil {
-		if k8serrors.IsNotFound(err) {
-			return nil
+		if !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete KService %s: %w", name, err)
 		}
-		return fmt.Errorf("failed to delete KService %s: %w", name, err)
+	}
+	if err := c.deleteAuxResources(ctx, appID); err != nil {
+		return fmt.Errorf("failed to delete auxiliary resources for app %s: %w", name, err)
 	}
 	logger.Infof(ctx, "Deleted KService %s/%s", ns, name)
 	return nil
+}
+
+func (c *AppK8sClient) ensureAuxResources(ctx context.Context, appID *flyteapp.Identifier, resources AppAuxResources) error {
+	for _, secret := range resources.Secrets {
+		if secret == nil {
+			continue
+		}
+		if err := c.upsertSecret(ctx, appID, secret); err != nil {
+			return err
+		}
+	}
+	for _, pvc := range resources.PersistentVolumeClaims {
+		if pvc == nil {
+			continue
+		}
+		if err := c.upsertPVC(ctx, appID, pvc); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *AppK8sClient) upsertSecret(ctx context.Context, appID *flyteapp.Identifier, desired *corev1.Secret) error {
+	applyAuxLabels(appID, desired)
+	existing := &corev1.Secret{}
+	err := c.k8sClient.Get(ctx, client.ObjectKey{Name: desired.Name, Namespace: desired.Namespace}, existing)
+	if k8serrors.IsNotFound(err) {
+		if err := c.k8sClient.Create(ctx, desired); err != nil {
+			return fmt.Errorf("failed to create Secret %s/%s: %w", desired.Namespace, desired.Name, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get Secret %s/%s: %w", desired.Namespace, desired.Name, err)
+	}
+
+	existing.Type = desired.Type
+	existing.Data = desired.Data
+	existing.StringData = desired.StringData
+	mergeObjectMeta(existing, desired)
+	if err := c.k8sClient.Update(ctx, existing); err != nil {
+		return fmt.Errorf("failed to update Secret %s/%s: %w", desired.Namespace, desired.Name, err)
+	}
+	return nil
+}
+
+func (c *AppK8sClient) upsertPVC(ctx context.Context, appID *flyteapp.Identifier, desired *corev1.PersistentVolumeClaim) error {
+	applyAuxLabels(appID, desired)
+	existing := &corev1.PersistentVolumeClaim{}
+	err := c.k8sClient.Get(ctx, client.ObjectKey{Name: desired.Name, Namespace: desired.Namespace}, existing)
+	if k8serrors.IsNotFound(err) {
+		if err := c.k8sClient.Create(ctx, desired); err != nil {
+			return fmt.Errorf("failed to create PVC %s/%s: %w", desired.Namespace, desired.Name, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get PVC %s/%s: %w", desired.Namespace, desired.Name, err)
+	}
+
+	mergeObjectMeta(existing, desired)
+	if err := c.k8sClient.Update(ctx, existing); err != nil {
+		return fmt.Errorf("failed to update PVC %s/%s metadata: %w", desired.Namespace, desired.Name, err)
+	}
+	return nil
+}
+
+func (c *AppK8sClient) deleteAuxResources(ctx context.Context, appID *flyteapp.Identifier) error {
+	labels := appAuxLabels(appID)
+	secretList := &corev1.SecretList{}
+	if err := c.k8sClient.List(ctx, secretList, client.InNamespace(AppNamespace), client.MatchingLabels(labels)); err != nil {
+		return fmt.Errorf("failed to list auxiliary Secrets: %w", err)
+	}
+	for i := range secretList.Items {
+		if err := c.k8sClient.Delete(ctx, &secretList.Items[i]); err != nil && !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete auxiliary Secret %s/%s: %w", secretList.Items[i].Namespace, secretList.Items[i].Name, err)
+		}
+	}
+
+	pvcList := &corev1.PersistentVolumeClaimList{}
+	if err := c.k8sClient.List(ctx, pvcList, client.InNamespace(AppNamespace), client.MatchingLabels(labels)); err != nil {
+		return fmt.Errorf("failed to list auxiliary PVCs: %w", err)
+	}
+	for i := range pvcList.Items {
+		if err := c.k8sClient.Delete(ctx, &pvcList.Items[i]); err != nil && !k8serrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete auxiliary PVC %s/%s: %w", pvcList.Items[i].Namespace, pvcList.Items[i].Name, err)
+		}
+	}
+	return nil
+}
+
+func appAuxLabels(appID *flyteapp.Identifier) map[string]string {
+	return map[string]string{
+		labelAppManaged:   "true",
+		labelProject:      appID.GetProject(),
+		labelDomain:       appID.GetDomain(),
+		labelAppName:      appID.GetName(),
+		labelAppAuxiliary: "true",
+	}
+}
+
+func applyAuxLabels(appID *flyteapp.Identifier, obj client.Object) {
+	obj.SetNamespace(AppNamespace)
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for k, v := range appAuxLabels(appID) {
+		labels[k] = v
+	}
+	obj.SetLabels(labels)
+}
+
+func mergeObjectMeta(existing, desired client.Object) {
+	labels := existing.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	for k, v := range desired.GetLabels() {
+		labels[k] = v
+	}
+	existing.SetLabels(labels)
+
+	annotations := existing.GetAnnotations()
+	if annotations == nil && len(desired.GetAnnotations()) > 0 {
+		annotations = map[string]string{}
+	}
+	for k, v := range desired.GetAnnotations() {
+		annotations[k] = v
+	}
+	existing.SetAnnotations(annotations)
 }
 
 // StartWatching starts the KService informer and begins dispatching events
@@ -646,7 +802,6 @@ func (c *AppK8sClient) buildKService(app *flyteapp.App) (*servingv1.Service, err
 }
 
 // buildPodSpec constructs a corev1.PodSpec from an App Spec.
-// Supports Container payload only for now; K8sPod support can be added in a follow-up.
 func buildPodSpec(spec *flyteapp.Spec) (corev1.PodSpec, error) {
 	switch p := spec.GetAppPayload().(type) {
 	case *flyteapp.Spec_Container:
@@ -676,9 +831,20 @@ func buildPodSpec(spec *flyteapp.Spec) (corev1.PodSpec, error) {
 		}, nil
 
 	case *flyteapp.Spec_Pod:
-		// K8sPod payloads are not yet supported — the pod spec serialization
-		// from flyteplugins is needed for a complete implementation.
-		return corev1.PodSpec{}, fmt.Errorf("K8sPod app payload is not yet supported")
+		if p.Pod == nil || p.Pod.GetPodSpec() == nil {
+			return corev1.PodSpec{}, fmt.Errorf("K8sPod app payload must include pod_spec")
+		}
+		podSpec := corev1.PodSpec{}
+		if err := utils.UnmarshalStructToObj(p.Pod.GetPodSpec(), &podSpec); err != nil {
+			return corev1.PodSpec{}, fmt.Errorf("failed to unmarshal K8sPod pod_spec: %w", err)
+		}
+		if len(podSpec.Containers) == 0 {
+			return corev1.PodSpec{}, fmt.Errorf("K8sPod pod_spec must include at least one container")
+		}
+		if podSpec.EnableServiceLinks == nil {
+			podSpec.EnableServiceLinks = boolPtr(false)
+		}
+		return podSpec, nil
 
 	default:
 		return corev1.PodSpec{}, fmt.Errorf("app spec has no payload (container or pod required)")
@@ -721,6 +887,8 @@ func protoResourceName(name flytecore.Resources_ResourceName) (corev1.ResourceNa
 		return corev1.ResourceStorage, true
 	case flytecore.Resources_EPHEMERAL_STORAGE:
 		return corev1.ResourceEphemeralStorage, true
+	case flytecore.Resources_GPU:
+		return corev1.ResourceName("nvidia.com/gpu"), true
 	default:
 		return "", false
 	}

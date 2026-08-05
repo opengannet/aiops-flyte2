@@ -4,15 +4,19 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	k8swatch "k8s.io/apimachinery/pkg/watch"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	servingv1 "knative.dev/serving/pkg/apis/serving/v1"
@@ -82,6 +86,21 @@ func testApp(project, domain, name, image string) *flyteapp.App {
 	}
 }
 
+func podSpecStruct(t *testing.T, podSpec corev1.PodSpec) *structpb.Struct {
+	t.Helper()
+	raw, err := json.Marshal(podSpec)
+	require.NoError(t, err)
+	var fields map[string]interface{}
+	require.NoError(t, json.Unmarshal(raw, &fields))
+	out, err := structpb.NewStruct(fields)
+	require.NoError(t, err)
+	return out
+}
+
+func stringPtr(s string) *string { return &s }
+
+func quantityString(q k8sresource.Quantity) string { return q.String() }
+
 func TestDeploy_Create(t *testing.T) {
 	c := testClient(t)
 	app := testApp("proj", "dev", "myapp", "nginx:latest")
@@ -98,6 +117,157 @@ func TestDeploy_Create(t *testing.T) {
 	assert.Equal(t, "myapp", ksvc.Labels[labelAppName])
 	assert.NotEmpty(t, ksvc.Annotations[annotationSpecSHA])
 	assert.Equal(t, "proj/dev/myapp", ksvc.Annotations[annotationAppID])
+}
+
+func TestDeploy_K8sPodPayloadBuildsKServicePodSpec(t *testing.T) {
+	c := testClient(t)
+	gpuResource := corev1.ResourceName("example.com/gpu")
+	podSpec := corev1.PodSpec{
+		InitContainers: []corev1.Container{{
+			Name:  "model-downloader",
+			Image: "aione-downloader:latest",
+			Env: []corev1.EnvVar{{
+				Name: "AIONE_PARAMS",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: "model-secret"},
+						Key:                  "aione_params",
+					},
+				},
+			}},
+			VolumeMounts: []corev1.VolumeMount{{Name: "models", MountPath: "/models"}},
+		}},
+		Containers: []corev1.Container{{
+			Name:  "vllm",
+			Image: "docker.ops.fzyun.io:5000/vllm/vllm-openai:latest",
+			Args:  []string{"--model", "/models/qwen-local"},
+			Ports: []corev1.ContainerPort{{Name: "http1", ContainerPort: 8000}},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceCPU:    k8sresource.MustParse("4"),
+					corev1.ResourceMemory: k8sresource.MustParse("16Gi"),
+					gpuResource:           k8sresource.MustParse("1"),
+				},
+				Limits: corev1.ResourceList{
+					corev1.ResourceCPU:    k8sresource.MustParse("4"),
+					corev1.ResourceMemory: k8sresource.MustParse("16Gi"),
+					gpuResource:           k8sresource.MustParse("1"),
+				},
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "models", MountPath: "/models"},
+				{Name: "models", MountPath: "/root/.cache/huggingface"},
+			},
+			ReadinessProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					HTTPGet: &corev1.HTTPGetAction{Path: "/v1/models", Port: intstr.FromInt(8000)},
+				},
+			},
+			StartupProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					HTTPGet: &corev1.HTTPGetAction{Path: "/v1/models", Port: intstr.FromInt(8000)},
+				},
+			},
+		}},
+		Volumes: []corev1.Volume{{
+			Name: "models",
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "model-cache"},
+			},
+		}},
+		Tolerations: []corev1.Toleration{{
+			Key:      "nvidia.com/gpu",
+			Operator: corev1.TolerationOpExists,
+			Effect:   corev1.TaintEffectNoSchedule,
+		}},
+		Affinity: &corev1.Affinity{
+			NodeAffinity: &corev1.NodeAffinity{},
+		},
+	}
+	app := &flyteapp.App{
+		Metadata: &flyteapp.Meta{
+			Id: &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "qwen"},
+		},
+		Spec: &flyteapp.Spec{
+			AppPayload: &flyteapp.Spec_Pod{
+				Pod: &flytecoreapp.K8SPod{
+					PodSpec:              podSpecStruct(t, podSpec),
+					PrimaryContainerName: "vllm",
+				},
+			},
+			Autoscaling: &flyteapp.AutoscalingConfig{Replicas: &flyteapp.Replicas{Min: 1, Max: 1}},
+		},
+	}
+
+	require.NoError(t, c.Deploy(context.Background(), app))
+
+	ksvc := &servingv1.Service{}
+	require.NoError(t, c.k8sClient.Get(context.Background(),
+		client.ObjectKey{Name: "qwen-proj-dev", Namespace: AppNamespace}, ksvc))
+	got := ksvc.Spec.Template.Spec.PodSpec
+	require.Len(t, got.InitContainers, 1)
+	require.Len(t, got.Containers, 1)
+	require.Len(t, got.Volumes, 1)
+
+	assert.Equal(t, "model-downloader", got.InitContainers[0].Name)
+	assert.Equal(t, "model-secret", got.InitContainers[0].Env[0].ValueFrom.SecretKeyRef.Name)
+	assert.Equal(t, "model-cache", got.Volumes[0].PersistentVolumeClaim.ClaimName)
+	assert.Equal(t, "vllm", got.Containers[0].Name)
+	assert.Equal(t, int32(8000), got.Containers[0].Ports[0].ContainerPort)
+	assert.Equal(t, "/v1/models", got.Containers[0].ReadinessProbe.HTTPGet.Path)
+	assert.Equal(t, "/v1/models", got.Containers[0].StartupProbe.HTTPGet.Path)
+	assert.Equal(t, "1", quantityString(got.Containers[0].Resources.Requests[gpuResource]))
+	assert.Equal(t, "1", quantityString(got.Containers[0].Resources.Limits[gpuResource]))
+	assert.Equal(t, "nvidia.com/gpu", got.Tolerations[0].Key)
+	assert.NotNil(t, got.Affinity)
+}
+
+func TestDeployWithResourcesCreatesAuxResourcesAndDeleteRemovesThem(t *testing.T) {
+	c := testClient(t)
+	app := testApp("proj", "dev", "qwen", "nginx:latest")
+	appID := app.GetMetadata().GetId()
+
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-secret", Namespace: AppNamespace},
+		Type:       corev1.SecretTypeOpaque,
+		Data:       map[string][]byte{"aione_params": []byte("encoded")},
+	}
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-cache", Namespace: AppNamespace},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+			StorageClassName: stringPtr("local-path"),
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")},
+			},
+		},
+	}
+
+	require.NoError(t, c.DeployWithResources(context.Background(), app, AppAuxResources{
+		Secrets:                []*corev1.Secret{secret},
+		PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc},
+	}))
+
+	gotSecret := &corev1.Secret{}
+	require.NoError(t, c.k8sClient.Get(context.Background(),
+		client.ObjectKey{Name: "qwen-model-secret", Namespace: AppNamespace}, gotSecret))
+	assert.Equal(t, "true", gotSecret.Labels[labelAppManaged])
+	assert.Equal(t, "proj", gotSecret.Labels[labelProject])
+	assert.Equal(t, "dev", gotSecret.Labels[labelDomain])
+	assert.Equal(t, "qwen", gotSecret.Labels[labelAppName])
+	assert.Equal(t, "true", gotSecret.Labels[labelAppAuxiliary])
+
+	gotPVC := &corev1.PersistentVolumeClaim{}
+	require.NoError(t, c.k8sClient.Get(context.Background(),
+		client.ObjectKey{Name: "qwen-model-cache", Namespace: AppNamespace}, gotPVC))
+	assert.Equal(t, "80Gi", quantityString(gotPVC.Spec.Resources.Requests[corev1.ResourceStorage]))
+	assert.Equal(t, "true", gotPVC.Labels[labelAppAuxiliary])
+
+	require.NoError(t, c.Delete(context.Background(), appID))
+	assert.True(t, k8serrors.IsNotFound(c.k8sClient.Get(context.Background(),
+		client.ObjectKey{Name: "qwen-model-secret", Namespace: AppNamespace}, &corev1.Secret{})))
+	assert.True(t, k8serrors.IsNotFound(c.k8sClient.Get(context.Background(),
+		client.ObjectKey{Name: "qwen-model-cache", Namespace: AppNamespace}, &corev1.PersistentVolumeClaim{})))
 }
 
 func TestDeploy_InjectsInternalAppEndpointPattern(t *testing.T) {

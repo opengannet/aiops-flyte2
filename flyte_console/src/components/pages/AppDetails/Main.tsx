@@ -2,82 +2,87 @@
  * © Copyright Union Systems Inc 2026. All rights reserved.
  */
 
-'use client'
+"use client";
 
-import { CopyButtonWithTooltip } from '@/components/CopyButtonWithTooltip'
-import { DetailsLayout } from '@/components/DetailsLayout'
-import { DetailsMetadata } from '@/components/DetailsLayout/DetailsLayout'
-import { Link } from '@/components/Link'
-import { Tabs, TabType } from '@/components/Tabs'
-import { BarChartIcon } from '@/components/icons/BarChartIcon'
-import { CodeIcon } from '@/components/icons/CodeIcon'
-import { LogsIcon } from '@/components/icons/LogsIcon'
-import { TaskIcon } from '@/components/icons/TaskIcon'
-import { useAppDetails } from '@/hooks/useApps'
-import { useLatestApps } from '@/hooks/useLatestResources'
-import { useOrg } from '@/hooks/useOrg'
-import { useSelectedTab } from '@/hooks/useQueryParamState'
-import { getLastDeployedData, getStatus } from '@/lib/appUtils'
-import { getLocation } from '@/lib/windowUtils'
-import { useParams } from 'next/navigation'
-import { useEffect, useMemo } from 'react'
-import { AppStatusBadge } from '../ListApps/components/AppStatusBadge'
-import { AppDetailsCodeTab } from './AppDetailsCodeTab'
-import { AppLogsTab } from './AppLogsTab'
-import { AppMetricsTab } from './AppMetricsTab'
-import { AppSpecTab } from './AppSpecTab'
-import { AppStartStopModal } from './AppStartStopModal'
-import { AppDetailsParams } from './types'
+import { CopyButtonWithTooltip } from "@/components/CopyButtonWithTooltip";
+import { DetailsLayout } from "@/components/DetailsLayout";
+import { DetailsMetadata } from "@/components/DetailsLayout/DetailsLayout";
+import { Link } from "@/components/Link";
+import { Tabs, TabType } from "@/components/Tabs";
+import { BarChartIcon } from "@/components/icons/BarChartIcon";
+import { CodeIcon } from "@/components/icons/CodeIcon";
+import { LogsIcon } from "@/components/icons/LogsIcon";
+import { TaskIcon } from "@/components/icons/TaskIcon";
+import { useAppDetails } from "@/hooks/useApps";
+import { useLatestApps } from "@/hooks/useLatestResources";
+import { useOrg } from "@/hooks/useOrg";
+import { useSelectedTab } from "@/hooks/useQueryParamState";
+import { getLastDeployedData, getStatus } from "@/lib/appUtils";
+import { getLocation } from "@/lib/windowUtils";
+import { useParams } from "next/navigation";
+import { useEffect, useMemo } from "react";
+import { AppStatusBadge } from "../ListApps/components/AppStatusBadge";
+import { AppDetailsCodeTab } from "./AppDetailsCodeTab";
+import { AppLogsTab } from "./AppLogsTab";
+import { AppMetricsTab } from "./AppMetricsTab";
+import { AppSpecTab } from "./AppSpecTab";
+import { AppStartStopModal } from "./AppStartStopModal";
+import { AppDetailsParams } from "./types";
+import { extractModelMetadata } from "../ListApps/modelAppUtils";
 
 export enum AppDetailsTab {
-  METRICS = 'metrics',
-  LOGS = 'logs',
-  APP = 'app',
-  DEPLOYMENTS = 'deployments',
-  CODE = 'code',
+  METRICS = "metrics",
+  LOGS = "logs",
+  APP = "app",
+  DEPLOYMENTS = "deployments",
+  CODE = "code",
 }
 
 const TabLayout = ({ children }: { children: React.ReactNode }) => (
   <div className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col gap-2 px-8 pb-8">
     {children}
   </div>
-)
+);
 
 export const AppDetailsPage = () => {
-  const org = useOrg()
-  const { setLatestApp } = useLatestApps()
-  const params = useParams<AppDetailsParams>()
+  const org = useOrg();
+  const { setLatestApp } = useLatestApps();
+  const params = useParams<AppDetailsParams>();
   const { selectedTab, setSelectedTab } = useSelectedTab(
     AppDetailsTab.LOGS,
     AppDetailsTab,
-  )
+  );
 
   const { data } = useAppDetails({
     domain: params.domain,
     name: params.appId,
     org,
     projectId: params.project,
-  })
+  });
 
   useEffect(() => {
     if (data?.app) {
-      setLatestApp(data.app)
+      setLatestApp(data.app);
     }
-  }, [data?.app, setLatestApp])
+  }, [data?.app, setLatestApp]);
 
   const metadata: DetailsMetadata = useMemo(() => {
-    const appName = data?.app?.metadata?.id?.name || '-'
-    const replicas = `${data?.app?.status?.currentReplicas || 0} of ${data?.app?.spec?.autoscaling?.replicas?.max || 0}`
-    const type = data?.app?.spec?.profile?.type || '-'
-    const lastDeployed = getLastDeployedData(data?.app)
-    const status = getStatus(data?.app?.status?.conditions)
-    const { href } = getLocation()
+    const appName = data?.app?.metadata?.id?.name || "-";
+    const replicas = `${data?.app?.status?.currentReplicas || 0} of ${data?.app?.spec?.autoscaling?.replicas?.max || 0}`;
+    const type = data?.app?.spec?.profile?.type || "-";
+    const modelMetadata = extractModelMetadata(data?.app);
+    const lastDeployed = getLastDeployedData(data?.app);
+    const status = getStatus(data?.app?.status?.conditions);
+    const { href } = getLocation();
 
     return {
       dataList: [
-        { label: 'Replicas', value: replicas },
-        { label: 'Type', value: type },
-        { label: 'Last deployed', value: lastDeployed.relativeTime },
+        { label: "Replicas", value: replicas },
+        { label: "Type", value: type },
+        ...(type === "VLLM" && modelMetadata.code
+          ? [{ label: "Code", value: modelMetadata.code }]
+          : []),
+        { label: "Last deployed", value: lastDeployed.relativeTime },
       ],
       title: {
         value: appName,
@@ -95,24 +100,24 @@ export const AppDetailsPage = () => {
       },
       subtitle: [
         {
-          copyValue: data?.app?.status?.ingress?.publicUrl || '-',
-          label: '',
+          copyValue: data?.app?.status?.ingress?.publicUrl || "-",
+          label: "",
           value: data?.app?.status?.ingress?.publicUrl ? (
             <Link
               href={data?.app?.status?.ingress?.publicUrl}
               target="blank"
               rel="noopener noreferrer"
             >
-              {data?.app?.status?.ingress?.publicUrl || '-'}
+              {data?.app?.status?.ingress?.publicUrl || "-"}
             </Link>
           ) : (
-            '-'
+            "-"
           ),
           disableCopy: false,
         },
       ],
-    }
-  }, [data?.app])
+    };
+  }, [data?.app]);
 
   const tabs: TabType<AppDetailsTab>[] = useMemo(() => {
     const baseTabs: TabType<AppDetailsTab>[] = [
@@ -123,7 +128,7 @@ export const AppDetailsPage = () => {
           </TabLayout>
         ),
         icon: <LogsIcon />,
-        label: 'Logs',
+        label: "Logs",
         path: AppDetailsTab.LOGS,
       },
       {
@@ -133,7 +138,7 @@ export const AppDetailsPage = () => {
           </TabLayout>
         ),
         icon: <BarChartIcon />,
-        label: 'Metrics',
+        label: "Metrics",
         path: AppDetailsTab.METRICS,
       },
       {
@@ -143,7 +148,7 @@ export const AppDetailsPage = () => {
           </TabLayout>
         ),
         icon: <TaskIcon />,
-        label: 'App',
+        label: "App",
         path: AppDetailsTab.APP,
       },
       {
@@ -153,13 +158,13 @@ export const AppDetailsPage = () => {
           </TabLayout>
         ),
         icon: <CodeIcon width={14} />,
-        label: 'Code',
+        label: "Code",
         path: AppDetailsTab.CODE,
       },
-    ]
+    ];
 
-    return baseTabs
-  }, [data?.app])
+    return baseTabs;
+  }, [data?.app]);
 
   return (
     <>
@@ -176,5 +181,5 @@ export const AppDetailsPage = () => {
         </div>
       </DetailsLayout>
     </>
-  )
-}
+  );
+};

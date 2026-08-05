@@ -30,6 +30,14 @@ func (m *mockInternalClient) Create(ctx context.Context, req *connect.Request[fl
 	return args.Get(0).(*connect.Response[flyteapp.CreateResponse]), args.Error(1)
 }
 
+func (m *mockInternalClient) CreateModelApp(ctx context.Context, req *connect.Request[flyteapp.CreateModelAppRequest]) (*connect.Response[flyteapp.CreateResponse], error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*connect.Response[flyteapp.CreateResponse]), args.Error(1)
+}
+
 func (m *mockInternalClient) Get(ctx context.Context, req *connect.Request[flyteapp.GetRequest]) (*connect.Response[flyteapp.GetResponse], error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
@@ -262,6 +270,26 @@ func TestCreate_InvalidatesCache(t *testing.T) {
 
 	_, hit := svc.cache.Get(cacheKey(app.Metadata.Id))
 	assert.False(t, hit, "cache should be invalidated after Create")
+	internal.AssertExpectations(t)
+}
+
+func TestCreateModelApp_InvalidatesCache(t *testing.T) {
+	internal := &mockInternalClient{}
+	svc := NewAppService(internal, 30*time.Second)
+
+	app := testApp()
+	svc.cache.Add(cacheKey(app.Metadata.Id), app)
+	req := connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{Project: "proj", Domain: "dev", Id: "myapp", Code: "myapp"},
+	})
+	internal.On("CreateModelApp", mock.Anything, req).Return(
+		connect.NewResponse(&flyteapp.CreateResponse{App: app}), nil,
+	)
+
+	_, err := svc.CreateModelApp(context.Background(), req)
+	require.NoError(t, err)
+	_, hit := svc.cache.Get(cacheKey(app.Metadata.Id))
+	assert.False(t, hit, "cache should be invalidated after CreateModelApp")
 	internal.AssertExpectations(t)
 }
 

@@ -6,6 +6,10 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN pip install --no-cache-dir requests minio
 
 COPY aione_downloads.py /app/aione_downloads.py

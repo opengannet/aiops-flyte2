@@ -15,6 +15,41 @@ message CreateRequest {
   App app = 1 [(buf.validate.field).required = true];
 }
 
+// Request message for creating an OpenAI-compatible model app.
+message CreateModelAppRequest {
+  ModelAppInput model = 1 [(buf.validate.field).required = true];
+}
+
+// Input for creating an OpenAI-compatible model app backed by Flyte Apps.
+message ModelAppInput {
+  string org = 1;
+  string project = 2 [(buf.validate.field).string.min_len = 1];
+  string domain = 3 [(buf.validate.field).string.min_len = 1];
+  string name = 4;
+  string id = 5;
+  string code = 6;
+  string image = 7;
+  string param = 8;
+  repeated ModelCodeSource codes = 9;
+  ModelResourceDefinition resource_definition = 10;
+}
+
+// ModelCodeSource describes a repository or archive source for model files.
+message ModelCodeSource {
+  string id = 1 [(buf.validate.field).string.min_len = 1];
+  string branch = 2;
+  string path = 3;
+  string token = 4;
+}
+
+// ModelResourceDefinition describes resources requested by a model app.
+message ModelResourceDefinition {
+  string cpu = 1;
+  string memory = 2;
+  uint32 gpu = 3;
+  string gpu_key = 4;
+}
+
 // Response message for creating an app.
 message CreateResponse {
   // The created app.

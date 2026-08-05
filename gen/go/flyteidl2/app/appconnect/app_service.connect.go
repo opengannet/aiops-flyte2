@@ -35,6 +35,9 @@ const (
 const (
 	// AppServiceCreateProcedure is the fully-qualified name of the AppService's Create RPC.
 	AppServiceCreateProcedure = "/flyteidl2.app.AppService/Create"
+	// AppServiceCreateModelAppProcedure is the fully-qualified name of the AppService's CreateModelApp
+	// RPC.
+	AppServiceCreateModelAppProcedure = "/flyteidl2.app.AppService/CreateModelApp"
 	// AppServiceGetProcedure is the fully-qualified name of the AppService's Get RPC.
 	AppServiceGetProcedure = "/flyteidl2.app.AppService/Get"
 	// AppServiceUpdateProcedure is the fully-qualified name of the AppService's Update RPC.
@@ -53,21 +56,24 @@ const (
 
 // These variables are the protoreflect.Descriptor objects for the RPCs defined in this package.
 var (
-	appServiceServiceDescriptor            = app.File_flyteidl2_app_app_service_proto.Services().ByName("AppService")
-	appServiceCreateMethodDescriptor       = appServiceServiceDescriptor.Methods().ByName("Create")
-	appServiceGetMethodDescriptor          = appServiceServiceDescriptor.Methods().ByName("Get")
-	appServiceUpdateMethodDescriptor       = appServiceServiceDescriptor.Methods().ByName("Update")
-	appServiceUpdateStatusMethodDescriptor = appServiceServiceDescriptor.Methods().ByName("UpdateStatus")
-	appServiceDeleteMethodDescriptor       = appServiceServiceDescriptor.Methods().ByName("Delete")
-	appServiceListMethodDescriptor         = appServiceServiceDescriptor.Methods().ByName("List")
-	appServiceWatchMethodDescriptor        = appServiceServiceDescriptor.Methods().ByName("Watch")
-	appServiceLeaseMethodDescriptor        = appServiceServiceDescriptor.Methods().ByName("Lease")
+	appServiceServiceDescriptor              = app.File_flyteidl2_app_app_service_proto.Services().ByName("AppService")
+	appServiceCreateMethodDescriptor         = appServiceServiceDescriptor.Methods().ByName("Create")
+	appServiceCreateModelAppMethodDescriptor = appServiceServiceDescriptor.Methods().ByName("CreateModelApp")
+	appServiceGetMethodDescriptor            = appServiceServiceDescriptor.Methods().ByName("Get")
+	appServiceUpdateMethodDescriptor         = appServiceServiceDescriptor.Methods().ByName("Update")
+	appServiceUpdateStatusMethodDescriptor   = appServiceServiceDescriptor.Methods().ByName("UpdateStatus")
+	appServiceDeleteMethodDescriptor         = appServiceServiceDescriptor.Methods().ByName("Delete")
+	appServiceListMethodDescriptor           = appServiceServiceDescriptor.Methods().ByName("List")
+	appServiceWatchMethodDescriptor          = appServiceServiceDescriptor.Methods().ByName("Watch")
+	appServiceLeaseMethodDescriptor          = appServiceServiceDescriptor.Methods().ByName("Lease")
 )
 
 // AppServiceClient is a client for the flyteidl2.app.AppService service.
 type AppServiceClient interface {
 	// Create creates a new app.
 	Create(context.Context, *connect.Request[app.CreateRequest]) (*connect.Response[app.CreateResponse], error)
+	// CreateModelApp creates a VLLM/OpenAI-compatible model app.
+	CreateModelApp(context.Context, *connect.Request[app.CreateModelAppRequest]) (*connect.Response[app.CreateResponse], error)
 	// Get retrieves an app by its identifier.
 	Get(context.Context, *connect.Request[app.GetRequest]) (*connect.Response[app.GetResponse], error)
 	// Update updates an existing app.
@@ -98,6 +104,12 @@ func NewAppServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			httpClient,
 			baseURL+AppServiceCreateProcedure,
 			connect.WithSchema(appServiceCreateMethodDescriptor),
+			connect.WithClientOptions(opts...),
+		),
+		createModelApp: connect.NewClient[app.CreateModelAppRequest, app.CreateResponse](
+			httpClient,
+			baseURL+AppServiceCreateModelAppProcedure,
+			connect.WithSchema(appServiceCreateModelAppMethodDescriptor),
 			connect.WithClientOptions(opts...),
 		),
 		get: connect.NewClient[app.GetRequest, app.GetResponse](
@@ -150,19 +162,25 @@ func NewAppServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...
 
 // appServiceClient implements AppServiceClient.
 type appServiceClient struct {
-	create       *connect.Client[app.CreateRequest, app.CreateResponse]
-	get          *connect.Client[app.GetRequest, app.GetResponse]
-	update       *connect.Client[app.UpdateRequest, app.UpdateResponse]
-	updateStatus *connect.Client[app.UpdateStatusRequest, app.UpdateStatusResponse]
-	delete       *connect.Client[app.DeleteRequest, app.DeleteResponse]
-	list         *connect.Client[app.ListRequest, app.ListResponse]
-	watch        *connect.Client[app.WatchRequest, app.WatchResponse]
-	lease        *connect.Client[app.LeaseRequest, app.LeaseResponse]
+	create         *connect.Client[app.CreateRequest, app.CreateResponse]
+	createModelApp *connect.Client[app.CreateModelAppRequest, app.CreateResponse]
+	get            *connect.Client[app.GetRequest, app.GetResponse]
+	update         *connect.Client[app.UpdateRequest, app.UpdateResponse]
+	updateStatus   *connect.Client[app.UpdateStatusRequest, app.UpdateStatusResponse]
+	delete         *connect.Client[app.DeleteRequest, app.DeleteResponse]
+	list           *connect.Client[app.ListRequest, app.ListResponse]
+	watch          *connect.Client[app.WatchRequest, app.WatchResponse]
+	lease          *connect.Client[app.LeaseRequest, app.LeaseResponse]
 }
 
 // Create calls flyteidl2.app.AppService.Create.
 func (c *appServiceClient) Create(ctx context.Context, req *connect.Request[app.CreateRequest]) (*connect.Response[app.CreateResponse], error) {
 	return c.create.CallUnary(ctx, req)
+}
+
+// CreateModelApp calls flyteidl2.app.AppService.CreateModelApp.
+func (c *appServiceClient) CreateModelApp(ctx context.Context, req *connect.Request[app.CreateModelAppRequest]) (*connect.Response[app.CreateResponse], error) {
+	return c.createModelApp.CallUnary(ctx, req)
 }
 
 // Get calls flyteidl2.app.AppService.Get.
@@ -204,6 +222,8 @@ func (c *appServiceClient) Lease(ctx context.Context, req *connect.Request[app.L
 type AppServiceHandler interface {
 	// Create creates a new app.
 	Create(context.Context, *connect.Request[app.CreateRequest]) (*connect.Response[app.CreateResponse], error)
+	// CreateModelApp creates a VLLM/OpenAI-compatible model app.
+	CreateModelApp(context.Context, *connect.Request[app.CreateModelAppRequest]) (*connect.Response[app.CreateResponse], error)
 	// Get retrieves an app by its identifier.
 	Get(context.Context, *connect.Request[app.GetRequest]) (*connect.Response[app.GetResponse], error)
 	// Update updates an existing app.
@@ -230,6 +250,12 @@ func NewAppServiceHandler(svc AppServiceHandler, opts ...connect.HandlerOption) 
 		AppServiceCreateProcedure,
 		svc.Create,
 		connect.WithSchema(appServiceCreateMethodDescriptor),
+		connect.WithHandlerOptions(opts...),
+	)
+	appServiceCreateModelAppHandler := connect.NewUnaryHandler(
+		AppServiceCreateModelAppProcedure,
+		svc.CreateModelApp,
+		connect.WithSchema(appServiceCreateModelAppMethodDescriptor),
 		connect.WithHandlerOptions(opts...),
 	)
 	appServiceGetHandler := connect.NewUnaryHandler(
@@ -281,6 +307,8 @@ func NewAppServiceHandler(svc AppServiceHandler, opts ...connect.HandlerOption) 
 		switch r.URL.Path {
 		case AppServiceCreateProcedure:
 			appServiceCreateHandler.ServeHTTP(w, r)
+		case AppServiceCreateModelAppProcedure:
+			appServiceCreateModelAppHandler.ServeHTTP(w, r)
 		case AppServiceGetProcedure:
 			appServiceGetHandler.ServeHTTP(w, r)
 		case AppServiceUpdateProcedure:
@@ -306,6 +334,10 @@ type UnimplementedAppServiceHandler struct{}
 
 func (UnimplementedAppServiceHandler) Create(context.Context, *connect.Request[app.CreateRequest]) (*connect.Response[app.CreateResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("flyteidl2.app.AppService.Create is not implemented"))
+}
+
+func (UnimplementedAppServiceHandler) CreateModelApp(context.Context, *connect.Request[app.CreateModelAppRequest]) (*connect.Response[app.CreateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("flyteidl2.app.AppService.CreateModelApp is not implemented"))
 }
 
 func (UnimplementedAppServiceHandler) Get(context.Context, *connect.Request[app.GetRequest]) (*connect.Response[app.GetResponse], error) {

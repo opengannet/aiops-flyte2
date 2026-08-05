@@ -11,6 +11,9 @@ service AppService {
   // Create creates a new app.
   rpc Create(CreateRequest) returns (CreateResponse) {}
 
+  // CreateModelApp creates a VLLM/OpenAI-compatible model app.
+  rpc CreateModelApp(CreateModelAppRequest) returns (CreateResponse) {}
+
   // Get retrieves an app by its identifier.
   rpc Get(GetRequest) returns (GetResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;

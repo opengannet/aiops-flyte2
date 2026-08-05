@@ -10,6 +10,7 @@ const createRunMock = vi.hoisted(() => vi.fn());
 const getRunDetailsMock = vi.hoisted(() => vi.fn());
 const getTrainingTaskByIdMock = vi.hoisted(() => vi.fn());
 const createTrainingTaskMock = vi.hoisted(() => vi.fn());
+const createModelAppMock = vi.hoisted(() => vi.fn());
 const startTrainingTaskMock = vi.hoisted(() => vi.fn());
 const createCodeRepositoryMock = vi.hoisted(() => vi.fn());
 const getDevelopmentInstanceByIdMock = vi.hoisted(() => vi.fn());
@@ -33,28 +34,32 @@ vi.mock("@connectrpc/connect", async () => {
             createTrainingTask: createTrainingTaskMock,
             startTrainingTask: startTrainingTaskMock,
           }
-        : service.typeName ===
-            "flyteidl2.developmentinstance.DevelopmentInstanceService"
+        : service.typeName === "flyteidl2.app.AppService"
           ? {
-              getDevelopmentInstanceById: getDevelopmentInstanceByIdMock,
-              createDevelopmentInstance: createDevelopmentInstanceMock,
-              startDevelopmentInstance: startDevelopmentInstanceMock,
+              createModelApp: createModelAppMock,
             }
           : service.typeName ===
-              "flyteidl2.aione.cloudstorage.CloudStorageService"
+              "flyteidl2.developmentinstance.DevelopmentInstanceService"
             ? {
-                ensureCloudStorage: ensureCloudStorageMock,
-                materializeCloudStorage: materializeCloudStorageMock,
+                getDevelopmentInstanceById: getDevelopmentInstanceByIdMock,
+                createDevelopmentInstance: createDevelopmentInstanceMock,
+                startDevelopmentInstance: startDevelopmentInstanceMock,
               }
             : service.typeName ===
-                "flyteidl2.aione.coderepository.CodeRepositoryService"
+                "flyteidl2.aione.cloudstorage.CloudStorageService"
               ? {
-                  createCodeRepository: createCodeRepositoryMock,
+                  ensureCloudStorage: ensureCloudStorageMock,
+                  materializeCloudStorage: materializeCloudStorageMock,
                 }
-            : {
-                createRun: createRunMock,
-                getRunDetails: getRunDetailsMock,
-              },
+              : service.typeName ===
+                  "flyteidl2.aione.coderepository.CodeRepositoryService"
+                ? {
+                    createCodeRepository: createCodeRepositoryMock,
+                  }
+                : {
+                    createRun: createRunMock,
+                    getRunDetails: getRunDetailsMock,
+                  },
     ),
   };
 });
@@ -98,6 +103,30 @@ const taskPayload = {
     memory: "7Gi",
     gpu: 2,
     gpu_key: "nvidia.com/gpu",
+  },
+};
+
+const modelPayload = {
+  org: "external-system",
+  project: "aione",
+  domain: "development",
+  name: "Qwen VLLM",
+  id: "qwen-vllm",
+  code: "qwen-local",
+  image: "vllm",
+  param: "--served-model-name\nqwen-local",
+  codes: [
+    {
+      id: "https://git.example.com/team/qwen.git",
+      branch: "main",
+      token: "model-token",
+    },
+  ],
+  resourceDefinition: {
+    cpu: "4",
+    memory: "16Gi",
+    gpu: 1,
+    gpu_key: "example.com/gpu",
   },
 };
 
@@ -158,8 +187,7 @@ describe("aione external typed run route", () => {
           sshUser: "dev",
           nodePort: 31000,
           codeServerUrl: "https://ins-contract-1-r1-code.ops.fzyun.io",
-          codeServerWorkspaceUrl:
-            "https://ins-contract-1-r1-code.ops.fzyun.io",
+          codeServerWorkspaceUrl: "https://ins-contract-1-r1-code.ops.fzyun.io",
         },
       },
     });
@@ -203,6 +231,28 @@ describe("aione external typed run route", () => {
           id: "task-contract-1",
         },
         name: "外部训练任务",
+      },
+    });
+    createModelAppMock.mockResolvedValue({
+      app: {
+        metadata: {
+          id: {
+            org: "aione",
+            project: "aione",
+            domain: "development",
+            name: "qwen-vllm",
+          },
+        },
+        spec: {
+          profile: {
+            type: "VLLM",
+          },
+        },
+        status: {
+          ingress: {
+            publicUrl: "http://qwen-vllm-aione-development.example.com",
+          },
+        },
       },
     });
     getTrainingTaskByIdMock.mockRejectedValue(
@@ -563,8 +613,7 @@ describe("aione external typed run route", () => {
           domain: "development",
         }),
         codeRepository: expect.objectContaining({
-          repoUrl:
-            "https://git.fzyun.io/founder/e5/v4.customize/js-sample.git",
+          repoUrl: "https://git.fzyun.io/founder/e5/v4.customize/js-sample.git",
           branch: "master",
           mountPath: "/data/js-sample",
           token: "code-token",
@@ -641,6 +690,70 @@ describe("aione external typed run route", () => {
           id: "task-contract-1",
           name: "外部训练任务",
           latestRunName: "task-contract-1-run",
+        },
+      },
+    });
+  });
+
+  it("creates a model app from the model path", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("http://localhost/v2/api/aione/model/run", {
+        method: "POST",
+        headers: { authorization: "Bearer external-key" },
+        body: JSON.stringify(modelPayload),
+      }),
+      { params: Promise.resolve({ type: "model" }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(createModelAppMock).toHaveBeenCalledTimes(1);
+    expect(createModelAppMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: expect.objectContaining({
+          org: "external-system",
+          project: "aione",
+          domain: "development",
+          name: "Qwen VLLM",
+          id: "qwen-vllm",
+          code: "qwen-local",
+          image: "vllm",
+          param: "--served-model-name\nqwen-local",
+          codes: [
+            expect.objectContaining({
+              id: "https://git.example.com/team/qwen.git",
+              branch: "main",
+              token: "model-token",
+            }),
+          ],
+          resourceDefinition: expect.objectContaining({
+            cpu: "4",
+            memory: "16Gi",
+            gpu: 1,
+            gpuKey: "example.com/gpu",
+          }),
+        }),
+      }),
+    );
+    expect(createDevelopmentInstanceMock).not.toHaveBeenCalled();
+    expect(createTrainingTaskMock).not.toHaveBeenCalled();
+    expect(body).toEqual({
+      status: 200,
+      data: {
+        id: "qwen-vllm",
+        source: {
+          org: "external-system",
+          id: "qwen-vllm",
+        },
+        app: {
+          org: "aione",
+          project: "aione",
+          domain: "development",
+          name: "qwen-vllm",
+          code: "qwen-local",
+          profile: "VLLM",
+          url: "http://qwen-vllm-aione-development.example.com",
         },
       },
     });
@@ -822,7 +935,7 @@ describe("aione external typed run route", () => {
     expect(response.status).toBe(400);
     expect(body).toEqual({
       status: 400,
-      message: "type must be instance or task",
+      message: "type must be instance, task, or model",
     });
   });
 });

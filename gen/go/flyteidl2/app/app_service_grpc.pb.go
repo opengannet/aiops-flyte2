@@ -19,14 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	AppService_Create_FullMethodName       = "/flyteidl2.app.AppService/Create"
-	AppService_Get_FullMethodName          = "/flyteidl2.app.AppService/Get"
-	AppService_Update_FullMethodName       = "/flyteidl2.app.AppService/Update"
-	AppService_UpdateStatus_FullMethodName = "/flyteidl2.app.AppService/UpdateStatus"
-	AppService_Delete_FullMethodName       = "/flyteidl2.app.AppService/Delete"
-	AppService_List_FullMethodName         = "/flyteidl2.app.AppService/List"
-	AppService_Watch_FullMethodName        = "/flyteidl2.app.AppService/Watch"
-	AppService_Lease_FullMethodName        = "/flyteidl2.app.AppService/Lease"
+	AppService_Create_FullMethodName         = "/flyteidl2.app.AppService/Create"
+	AppService_CreateModelApp_FullMethodName = "/flyteidl2.app.AppService/CreateModelApp"
+	AppService_Get_FullMethodName            = "/flyteidl2.app.AppService/Get"
+	AppService_Update_FullMethodName         = "/flyteidl2.app.AppService/Update"
+	AppService_UpdateStatus_FullMethodName   = "/flyteidl2.app.AppService/UpdateStatus"
+	AppService_Delete_FullMethodName         = "/flyteidl2.app.AppService/Delete"
+	AppService_List_FullMethodName           = "/flyteidl2.app.AppService/List"
+	AppService_Watch_FullMethodName          = "/flyteidl2.app.AppService/Watch"
+	AppService_Lease_FullMethodName          = "/flyteidl2.app.AppService/Lease"
 )
 
 // AppServiceClient is the client API for AppService service.
@@ -35,6 +36,8 @@ const (
 type AppServiceClient interface {
 	// Create creates a new app.
 	Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error)
+	// CreateModelApp creates a VLLM/OpenAI-compatible model app.
+	CreateModelApp(ctx context.Context, in *CreateModelAppRequest, opts ...grpc.CallOption) (*CreateResponse, error)
 	// Get retrieves an app by its identifier.
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 	// Update updates an existing app.
@@ -62,6 +65,15 @@ func NewAppServiceClient(cc grpc.ClientConnInterface) AppServiceClient {
 func (c *appServiceClient) Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error) {
 	out := new(CreateResponse)
 	err := c.cc.Invoke(ctx, AppService_Create_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *appServiceClient) CreateModelApp(ctx context.Context, in *CreateModelAppRequest, opts ...grpc.CallOption) (*CreateResponse, error) {
+	out := new(CreateResponse)
+	err := c.cc.Invoke(ctx, AppService_CreateModelApp_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +195,8 @@ func (x *appServiceLeaseClient) Recv() (*LeaseResponse, error) {
 type AppServiceServer interface {
 	// Create creates a new app.
 	Create(context.Context, *CreateRequest) (*CreateResponse, error)
+	// CreateModelApp creates a VLLM/OpenAI-compatible model app.
+	CreateModelApp(context.Context, *CreateModelAppRequest) (*CreateResponse, error)
 	// Get retrieves an app by its identifier.
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	// Update updates an existing app.
@@ -205,6 +219,9 @@ type UnimplementedAppServiceServer struct {
 
 func (UnimplementedAppServiceServer) Create(context.Context, *CreateRequest) (*CreateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Create not implemented")
+}
+func (UnimplementedAppServiceServer) CreateModelApp(context.Context, *CreateModelAppRequest) (*CreateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateModelApp not implemented")
 }
 func (UnimplementedAppServiceServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
@@ -253,6 +270,24 @@ func _AppService_Create_Handler(srv interface{}, ctx context.Context, dec func(i
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AppServiceServer).Create(ctx, req.(*CreateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AppService_CreateModelApp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateModelAppRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AppServiceServer).CreateModelApp(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AppService_CreateModelApp_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AppServiceServer).CreateModelApp(ctx, req.(*CreateModelAppRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -399,6 +434,10 @@ var AppService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Create",
 			Handler:    _AppService_Create_Handler,
+		},
+		{
+			MethodName: "CreateModelApp",
+			Handler:    _AppService_CreateModelApp_Handler,
 		},
 		{
 			MethodName: "Get",

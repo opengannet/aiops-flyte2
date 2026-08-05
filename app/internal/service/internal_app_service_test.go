@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,7 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
+	corev1 "k8s.io/api/core/v1"
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 
+	appk8s "github.com/flyteorg/flyte/v2/app/internal/k8s"
+	aionedownloader "github.com/flyteorg/flyte/v2/flyteplugins/aione/downloader"
+	"github.com/flyteorg/flyte/v2/flytestdlib/utils"
 	flyteapp "github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app"
 	"github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app/appconnect"
 	"github.com/flyteorg/flyte/v2/gen/go/flyteidl2/common"
@@ -24,6 +32,10 @@ type mockAppK8sClient struct {
 
 func (m *mockAppK8sClient) Deploy(ctx context.Context, app *flyteapp.App) error {
 	return m.Called(ctx, app).Error(0)
+}
+
+func (m *mockAppK8sClient) DeployWithResources(ctx context.Context, app *flyteapp.App, resources appk8s.AppAuxResources) error {
+	return m.Called(ctx, app, resources).Error(0)
 }
 
 func (m *mockAppK8sClient) Stop(ctx context.Context, appID *flyteapp.Identifier) error {
@@ -92,6 +104,8 @@ func (m *mockAppK8sClient) PublicIngress(id *flyteapp.Identifier) *flyteapp.Ingr
 func testAppID() *flyteapp.Identifier {
 	return &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: "myapp"}
 }
+
+func quantityString(q k8sresource.Quantity) string { return q.String() }
 
 func testApp() *flyteapp.App {
 	return &flyteapp.App{
@@ -203,6 +217,90 @@ func TestCreate_NoBaseDomain_NoIngress(t *testing.T) {
 	resp, err := svc.Create(context.Background(), connect.NewRequest(&flyteapp.CreateRequest{App: app}))
 	require.NoError(t, err)
 	assert.Nil(t, resp.Msg.App.Status.Ingress)
+	k8s.AssertExpectations(t)
+}
+
+func TestCreateModelApp_BuildsSanitizedVLLMPod(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	svc := NewInternalAppService(k8s)
+
+	var deployedApp *flyteapp.App
+	var aux appk8s.AppAuxResources
+	ingress := &flyteapp.Ingress{PublicUrl: "http://qwen-local-proj-dev.example.com"}
+	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		deployedApp = args.Get(1).(*flyteapp.App)
+		aux = args.Get(2).(appk8s.AppAuxResources)
+	}).Return(nil)
+	k8s.On("PublicIngress", mock.MatchedBy(func(id *flyteapp.Identifier) bool {
+		return id.GetProject() == "proj" && id.GetDomain() == "dev" && id.GetName() == "qwen-local"
+	})).Return(ingress)
+
+	resp, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Org:     "flyte",
+			Project: "proj",
+			Domain:  "dev",
+			Name:    "Qwen Local",
+			Id:      "qwen-local",
+			Code:    "qwen-local",
+			Image:   "vllm",
+			Param:   "--served-model-name\nqwen-local",
+			Codes: []*flyteapp.ModelCodeSource{{
+				Id:     "https://git.example.com/team/qwen-local.git",
+				Branch: "main",
+				Token:  "secret-token",
+			}},
+			ResourceDefinition: &flyteapp.ModelResourceDefinition{
+				Cpu:    "4",
+				Memory: "16Gi",
+				Gpu:    1,
+				GpuKey: "example.com/gpu",
+			},
+		},
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, deployedApp)
+	assert.Equal(t, "qwen-local", resp.Msg.App.Metadata.Id.Name)
+	assert.Equal(t, ingress.PublicUrl, resp.Msg.App.Status.Ingress.PublicUrl)
+
+	specJSON, err := protojson.Marshal(deployedApp.Spec)
+	require.NoError(t, err)
+	assert.NotContains(t, string(specJSON), "secret-token")
+	assert.Contains(t, string(specJSON), `"type":"VLLM"`)
+	assert.Contains(t, string(specJSON), "qwen-local")
+
+	require.Len(t, aux.Secrets, 1)
+	require.Len(t, aux.PersistentVolumeClaims, 1)
+	secretData := aux.Secrets[0].Data[aionedownloader.SecretKey]
+	rawSecret, err := base64.StdEncoding.DecodeString(string(secretData))
+	require.NoError(t, err)
+	var secretParams map[string]interface{}
+	require.NoError(t, json.Unmarshal(rawSecret, &secretParams))
+	assert.Contains(t, string(rawSecret), "secret-token")
+	assert.Contains(t, string(rawSecret), "/models/qwen-local")
+
+	var podSpec corev1.PodSpec
+	require.NoError(t, utils.UnmarshalStructToObj(deployedApp.Spec.GetPod().GetPodSpec(), &podSpec))
+	require.Len(t, podSpec.InitContainers, 1)
+	require.Len(t, podSpec.Containers, 1)
+	main := podSpec.Containers[0]
+	assert.Equal(t, "vllm", main.Name)
+	assert.Equal(t, "docker.ops.fzyun.io:5000/vllm/vllm-openai:latest", main.Image)
+	assert.Contains(t, main.Args, "--host")
+	assert.Contains(t, main.Args, "0.0.0.0")
+	assert.Contains(t, main.Args, "--port")
+	assert.Contains(t, main.Args, "8000")
+	assert.Contains(t, main.Args, "--model")
+	assert.Contains(t, main.Args, "/models/qwen-local")
+	assert.Equal(t, int32(8000), main.Ports[0].ContainerPort)
+	assert.Equal(t, "/v1/models", main.ReadinessProbe.HTTPGet.Path)
+	assert.Equal(t, "/v1/models", main.StartupProbe.HTTPGet.Path)
+	assert.Equal(t, "1", quantityString(main.Resources.Requests[corev1.ResourceName("example.com/gpu")]))
+	assert.Equal(t, "1", quantityString(main.Resources.Limits[corev1.ResourceName("example.com/gpu")]))
+	assert.Equal(t, aux.Secrets[0].Name, podSpec.InitContainers[0].Env[0].ValueFrom.SecretKeyRef.Name)
+	assert.Equal(t, aux.PersistentVolumeClaims[0].Name, podSpec.Volumes[0].PersistentVolumeClaim.ClaimName)
+	assert.Equal(t, "/models", main.VolumeMounts[0].MountPath)
+	assert.Equal(t, "/root/.cache/huggingface", main.VolumeMounts[1].MountPath)
 	k8s.AssertExpectations(t)
 }
 

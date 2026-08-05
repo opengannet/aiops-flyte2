@@ -2,33 +2,37 @@
  * © Copyright Union Systems Inc 2026. All rights reserved.
  */
 
-import { DescriptionListWrapper } from '@/components/DescriptionListWrapper'
-import { ExternalLinkUrl } from '@/components/ExternalLinkUrl'
-import { TabSection } from '@/components/TabSection'
+import { DescriptionListWrapper } from "@/components/DescriptionListWrapper";
+import { ExternalLinkUrl } from "@/components/ExternalLinkUrl";
+import { TabSection } from "@/components/TabSection";
+import { Button } from "@/components/Button";
+import { CopyButton } from "@/components/CopyButton";
 import {
   App,
   Status_DeploymentStatus,
-} from '@/gen/flyteidl2/app/app_definition_pb'
+} from "@/gen/flyteidl2/app/app_definition_pb";
+import { getStatus } from "@/lib/appUtils";
+import { useMemo, useState } from "react";
+import stringify from "safe-stable-stringify";
 import {
-  Resources,
-  Resources_ResourceName,
-} from '@/gen/flyteidl2/core/tasks_pb'
-import { getStatus } from '@/lib/appUtils'
-import { useMemo } from 'react'
-import stringify from 'safe-stable-stringify'
+  extractAppResourceSummary,
+  extractModelMetadata,
+} from "../ListApps/modelAppUtils";
 
 export const AppSpecTab = ({ app }: { app: App | undefined }) => {
-  const description = app?.spec?.profile?.shortDescription
-  const specJson = stringify(app?.spec)
+  const [apiKey, setApiKey] = useState("");
+  const [apiKeyError, setApiKeyError] = useState("");
+  const [isCreatingApiKey, setIsCreatingApiKey] = useState(false);
+  const description = app?.spec?.profile?.shortDescription;
+  const specJson = stringify(app?.spec);
+  const modelMetadata = useMemo(() => extractModelMetadata(app), [app]);
+  const isModelApp = app?.spec?.profile?.type === "VLLM";
 
-  const links = app?.spec?.links || []
+  const links = app?.spec?.links || [];
   const isActive =
-    getStatus(app?.status?.conditions) === Status_DeploymentStatus.ACTIVE
+    getStatus(app?.status?.conditions) === Status_DeploymentStatus.ACTIVE;
 
-  const containerResources: Resources | undefined =
-    app?.spec?.appPayload.case === 'container'
-      ? app.spec?.appPayload?.value.resources
-      : undefined
+  const resourceSummary = useMemo(() => extractAppResourceSummary(app), [app]);
 
   const replicaJson = useMemo(
     () =>
@@ -38,54 +42,66 @@ export const AppSpecTab = ({ app }: { app: App | undefined }) => {
         Max: app?.spec?.autoscaling?.replicas?.max,
       }) as Record<string, unknown>,
     [app?.spec?.autoscaling?.replicas, app?.status?.currentReplicas],
-  )
+  );
 
   const requestsJson = useMemo(
-    () =>
-      ({
-        Memory: containerResources?.requests.find(
-          (r) => r.name === Resources_ResourceName.MEMORY,
-        )?.value,
-        CPU: containerResources?.requests.find(
-          (r) => r.name === Resources_ResourceName.CPU,
-        )?.value,
-        GPU: containerResources?.requests.find(
-          (r) => r.name === Resources_ResourceName.GPU,
-        )?.value,
-        'Ephemeral Storage': containerResources?.requests.find(
-          (r) => r.name === Resources_ResourceName.EPHEMERAL_STORAGE,
-        )?.value,
-      }) as Record<string, unknown>,
-    [containerResources?.requests],
-  )
+    () => resourceSummary.requests as Record<string, unknown>,
+    [resourceSummary.requests],
+  );
 
   const limitsJson = useMemo(
+    () => resourceSummary.limits as Record<string, unknown>,
+    [resourceSummary.limits],
+  );
+
+  const modelJson = useMemo(
     () =>
       ({
-        Memory: containerResources?.limits.find(
-          (r) => r.name === Resources_ResourceName.MEMORY,
-        )?.value,
-        CPU: containerResources?.limits.find(
-          (r) => r.name === Resources_ResourceName.CPU,
-        )?.value,
-        GPU: containerResources?.limits.find(
-          (r) => r.name === Resources_ResourceName.GPU,
-        )?.value,
-        'Ephemeral Storage': containerResources?.limits.find(
-          (r) => r.name === Resources_ResourceName.EPHEMERAL_STORAGE,
-        )?.value,
+        Profile: app?.spec?.profile?.type,
+        Code: modelMetadata.code,
+        Image: modelMetadata.image,
+        "Model path": modelMetadata.modelPath,
+        "GPU key": modelMetadata.gpuKey,
+        PVC: modelMetadata.pvc,
+        "Service URL": app?.status?.ingress?.publicUrl,
       }) as Record<string, unknown>,
-    [containerResources?.limits],
-  )
+    [app?.spec?.profile?.type, app?.status?.ingress?.publicUrl, modelMetadata],
+  );
 
   const aboutRawJson = useMemo(() => {
-    if (!app?.spec) return {}
+    if (!app?.spec) return {};
     try {
-      return JSON.parse(stringify(app.spec)) as Record<string, unknown>
+      return JSON.parse(stringify(app.spec)) as Record<string, unknown>;
     } catch {
-      return {}
+      return {};
     }
-  }, [app?.spec])
+  }, [app?.spec]);
+
+  const createApiKey = async () => {
+    const modelCode = modelMetadata.code;
+    if (!modelCode) return;
+    setApiKey("");
+    setApiKeyError("");
+    setIsCreatingApiKey(true);
+    try {
+      const modelPath = modelCode.split("/").map(encodeURIComponent).join("/");
+      const response = await fetch(`/api/aione/apikey/${modelPath}`, {
+        method: "POST",
+      });
+      const body = (await response.json()) as {
+        data?: string;
+        message?: string;
+      };
+      if (!response.ok) {
+        throw new Error(body.message || `HTTP ${response.status}`);
+      }
+      setApiKey(body.data || "");
+    } catch (error) {
+      setApiKeyError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsCreatingApiKey(false);
+    }
+  };
 
   return (
     <div className="flex w-full min-w-0 flex-col gap-6 [&>*:last-child]:mb-5">
@@ -111,6 +127,33 @@ export const AppSpecTab = ({ app }: { app: App | undefined }) => {
         </div>
       )}
 
+      {isModelApp && (
+        <TabSection heading="Model" copyButtonContent={stringify(modelJson)}>
+          <div className="flex flex-col gap-4 p-4">
+            <DescriptionListWrapper rawJson={modelJson} />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                outline
+                disabled={!modelMetadata.code || isCreatingApiKey}
+                onClick={createApiKey}
+                type="button"
+              >
+                {isCreatingApiKey ? "Creating API key" : "Create API key"}
+              </Button>
+              {apiKey && (
+                <div className="flex min-w-0 items-center gap-2 text-sm">
+                  <span className="truncate font-mono">{apiKey}</span>
+                  <CopyButton value={apiKey} />
+                </div>
+              )}
+              {apiKeyError && (
+                <span className="text-sm text-red-500">{apiKeyError}</span>
+              )}
+            </div>
+          </div>
+        </TabSection>
+      )}
+
       <TabSection heading="About" copyButtonContent={specJson}>
         <DescriptionListWrapper rawJson={aboutRawJson} />
       </TabSection>
@@ -127,5 +170,5 @@ export const AppSpecTab = ({ app }: { app: App | undefined }) => {
         <DescriptionListWrapper rawJson={limitsJson} />
       </TabSection>
     </div>
-  )
-}
+  );
+};

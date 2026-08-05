@@ -2,30 +2,32 @@
  * © Copyright Union Systems Inc 2026. All rights reserved.
  */
 
-'use client'
+"use client";
 
-import { Header } from '@/components/Header'
-import { NavPanelLayout } from '@/components/NavPanel/NavPanelLayout'
-import { useListApps } from '@/hooks/useApps'
-import { useOrg } from '@/hooks/useOrg'
-import { useSearchTerm } from '@/hooks/useQueryParamState'
-import { useParams } from 'next/navigation'
-import { Suspense } from 'react'
-import { ProjectDomainParams } from '../RunDetails/types'
-import { ListAppsContent } from './ListAppsContent'
-import { ListAppsSearch } from './components'
+import { Header } from "@/components/Header";
+import { NavPanelLayout } from "@/components/NavPanel/NavPanelLayout";
+import { Button } from "@/components/Button";
+import { useListApps } from "@/hooks/useApps";
+import { useOrg } from "@/hooks/useOrg";
+import { useSearchTerm } from "@/hooks/useQueryParamState";
+import { PlusIcon } from "@heroicons/react/20/solid";
+import { useParams } from "next/navigation";
+import { Suspense } from "react";
+import { ProjectDomainParams } from "../RunDetails/types";
+import { ListAppsContent } from "./ListAppsContent";
+import { ListAppsSearch } from "./components";
 
 export function ListAppsPage() {
-  const params = useParams<ProjectDomainParams>()
-  const { searchTerm } = useSearchTerm()
-  const org = useOrg()
+  const params = useParams<ProjectDomainParams>();
+  const { searchTerm } = useSearchTerm();
+  const org = useOrg();
 
   const appsQuery = useListApps({
     domain: params.domain,
     org,
     projectId: params.project,
     search: searchTerm,
-  })
+  });
 
   return (
     <Suspense>
@@ -38,7 +40,16 @@ export function ListAppsPage() {
               <div className="flex flex-col">
                 <h1 className="text-xl font-medium">Apps</h1>
               </div>
-              <ListAppsSearch />
+              <div className="flex items-center gap-3">
+                <Button
+                  color="union"
+                  href={`/domain/${params.domain}/project/${params.project}/apps/create`}
+                >
+                  <PlusIcon data-slot="icon" />
+                  Create model app
+                </Button>
+                <ListAppsSearch />
+              </div>
             </div>
 
             <ListAppsContent
@@ -49,5 +60,5 @@ export function ListAppsPage() {
         </NavPanelLayout>
       </main>
     </Suspense>
-  )
+  );
 }

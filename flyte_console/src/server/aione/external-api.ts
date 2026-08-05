@@ -60,6 +60,13 @@ import {
   GetCloudStorageByIdRequestSchema,
   MaterializeCloudStorageRequestSchema,
 } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_service_pb";
+import { AppService } from "@/gen/flyteidl2/app/app_service_pb";
+import {
+  CreateModelAppRequestSchema,
+  ModelAppInputSchema,
+  ModelCodeSourceSchema,
+  ModelResourceDefinitionSchema,
+} from "@/gen/flyteidl2/app/app_payload_pb";
 import {
   CreateTrainingTaskRequestSchema,
   GetTrainingTaskByIdRequestSchema,
@@ -102,6 +109,7 @@ import { getHawkRunLogs, type HawkRunLogLine } from "@/server/hawk/run-logs";
 import { buildCloudStoragePVCName } from "@/server/cloud-storage/naming";
 
 export type AioneExternalType = "instance" | "task";
+export type AioneExternalRunType = AioneExternalType | "model";
 export type AioneClearType = AioneExternalType | "store";
 type DevelopmentInstanceCloudStorageMounts =
   DevelopmentInstanceFormValues["cloudStorageMounts"];
@@ -142,6 +150,14 @@ export function parseAioneExternalType(type: string): AioneExternalType {
   return resolved;
 }
 
+export function parseAioneExternalRunType(type: string): AioneExternalRunType {
+  const resolved = type.trim();
+  if (resolved !== "instance" && resolved !== "task" && resolved !== "model") {
+    throw statusError("type must be instance, task, or model", 400);
+  }
+  return resolved;
+}
+
 export function parseAioneClearType(type: string): AioneClearType {
   const resolved = type.trim();
   if (resolved !== "instance" && resolved !== "task" && resolved !== "store") {
@@ -151,9 +167,12 @@ export function parseAioneClearType(type: string): AioneClearType {
 }
 
 export async function createAioneExternalRun(
-  type: AioneExternalType,
+  type: AioneExternalRunType,
   payload: unknown,
 ) {
+  if (type === "model") {
+    return createModelAppRun(payload);
+  }
   if (type === "task") {
     return createTrainingTaskRun(payload);
   }
@@ -318,11 +337,14 @@ export async function getAioneExternalPvcSize(sourcePvcId: string) {
     cloudStorage.targetNamespace ||
     cloudStorage.materializations[0]?.targetNamespace ||
     AIONE_RUNTIME_NAMESPACE;
-  const { apiOrigin, namespace: kubeNamespace, token, ca } =
-    await getKubernetesClientConfig(namespace);
-  const { loadCloudStoragePvcStats } = await import(
-    "@/server/cloud-storage/stats"
-  );
+  const {
+    apiOrigin,
+    namespace: kubeNamespace,
+    token,
+    ca,
+  } = await getKubernetesClientConfig(namespace);
+  const { loadCloudStoragePvcStats } =
+    await import("@/server/cloud-storage/stats");
   const { pvcs } = await loadCloudStoragePvcStats({
     apiOrigin,
     namespace: kubeNamespace,
@@ -340,8 +362,7 @@ export async function getAioneExternalPvcSize(sourcePvcId: string) {
 
 export function aggregatePvcStats(pvcs: PvcStats[]) {
   const provisioned = pvcs.reduce(
-    (total, pvc) =>
-      total + (pvc.capacityBytes ?? pvc.requestedBytes ?? 0),
+    (total, pvc) => total + (pvc.capacityBytes ?? pvc.requestedBytes ?? 0),
     0,
   );
   const allUsageAvailable = pvcs.every(
@@ -363,10 +384,7 @@ export function aggregatePvcStats(pvcs: PvcStats[]) {
     };
   }
 
-  const used = pvcs.reduce(
-    (total, pvc) => total + (pvc.usedBytes ?? 0),
-    0,
-  );
+  const used = pvcs.reduce((total, pvc) => total + (pvc.usedBytes ?? 0), 0);
   const available = pvcs.reduce(
     (total, pvc) => total + (pvc.availableBytes ?? 0),
     0,
@@ -388,12 +406,9 @@ export function aggregatePvcStats(pvcs: PvcStats[]) {
     used,
     provisioned,
     available,
-    usagePercent:
-      Math.round((used / filesystemCapacity) * 100 * 100) / 100,
+    usagePercent: Math.round((used / filesystemCapacity) * 100 * 100) / 100,
     statsSource,
-    statsTime: observedTimes.every(
-      (value): value is string => value !== null,
-    )
+    statsTime: observedTimes.every((value): value is string => value !== null)
       ? observedTimes.reduce((earliest, value) =>
           value < earliest ? value : earliest,
         )
@@ -649,6 +664,33 @@ async function createTrainingTaskRun(payload: unknown) {
     taskName: task?.name || values.name,
     runName,
   });
+}
+
+async function createModelAppRun(payload: unknown) {
+  const request = buildExternalModelAppRequest(payload);
+  const created = await createAppClient().createModelApp(request);
+  const app = created.app;
+  const appID = app?.metadata?.id;
+  if (!appID?.name) {
+    throw statusError("failed to create model app", 502);
+  }
+  const model = request.model;
+  return {
+    id: appID.name,
+    source: {
+      org: model?.org || "",
+      id: model?.id || model?.code || appID.name,
+    },
+    app: {
+      org: appID.org,
+      project: appID.project,
+      domain: appID.domain,
+      name: appID.name,
+      code: model?.code || appID.name,
+      profile: app?.spec?.profile?.type || "VLLM",
+      url: app?.status?.ingress?.publicUrl || "",
+    },
+  };
 }
 
 async function startExistingTrainingTask({
@@ -1214,6 +1256,63 @@ function buildExternalTrainingTaskValues(payload: unknown) {
   };
 }
 
+function buildExternalModelAppRequest(payload: unknown) {
+  const object = getPayloadObject(payload);
+  const resources = getPayloadObject(object.resourceDefinition);
+  const id = stringField(object, "id");
+  const code = stringField(object, "code") || id;
+  const name = stringField(object, "name") || code || id;
+  if (!id && !code && !name) {
+    throw statusError("id, code, or name is required", 400);
+  }
+
+  return create(CreateModelAppRequestSchema, {
+    model: create(ModelAppInputSchema, {
+      org:
+        stringField(object, "org") ||
+        process.env.EXTERNAL_API_FLYTE_ORG?.trim() ||
+        DEFAULT_AIONE_INTERNAL_ORG,
+      project: requiredStringField(object, "project"),
+      domain: requiredStringField(object, "domain"),
+      name,
+      id,
+      code,
+      image: stringField(object, "image") || "vllm",
+      param: stringField(object, "param"),
+      codes: parseExternalModelCodeSources(object.codes),
+      resourceDefinition: create(ModelResourceDefinitionSchema, {
+        cpu: stringField(resources, "cpu"),
+        memory: stringField(resources, "memory"),
+        gpu: nonNegativeIntegerField(
+          resources.gpu,
+          0,
+          "resourceDefinition.gpu",
+        ),
+        gpuKey:
+          stringField(resources, "gpu_key") || stringField(resources, "gpuKey"),
+      }),
+    }),
+  });
+}
+
+function parseExternalModelCodeSources(value: unknown) {
+  if (value == null) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw statusError("codes must be an array", 400);
+  }
+  return value.map((item, index) => {
+    const code = getPayloadObject(item);
+    return create(ModelCodeSourceSchema, {
+      id: requiredStringField(code, "id", `codes[${index}].id`),
+      branch: stringField(code, "branch"),
+      path: stringField(code, "path"),
+      token: stringField(code, "token"),
+    });
+  });
+}
+
 function parseExternalCloudStorageMounts(
   value: unknown,
   defaultStorageClass: string,
@@ -1226,11 +1325,7 @@ function parseExternalCloudStorageMounts(
   }
   return value.map((item, index) => {
     const datastore = getPayloadObject(item);
-    const id = requiredStringField(
-      datastore,
-      "id",
-      `datastores[${index}].id`,
-    );
+    const id = requiredStringField(datastore, "id", `datastores[${index}].id`);
     return {
       cloudStorageId: id,
       pvcName: buildCloudStoragePVCName(id),
@@ -1461,6 +1556,15 @@ function createTrainingTaskClient() {
 function createDevelopmentInstanceClient() {
   return createClient(
     DevelopmentInstanceService,
+    createConnectTransport({
+      baseUrl: getFlyteApiOrigin(),
+    }),
+  );
+}
+
+function createAppClient() {
+  return createClient(
+    AppService,
     createConnectTransport({
       baseUrl: getFlyteApiOrigin(),
     }),
@@ -2258,7 +2362,10 @@ async function findDevelopmentInstanceById(
   try {
     return await getDevelopmentInstanceById(client, id);
   } catch (error) {
-    if (error instanceof Error && error.message === "development instance not found") {
+    if (
+      error instanceof Error &&
+      error.message === "development instance not found"
+    ) {
       return undefined;
     }
     throw error;
