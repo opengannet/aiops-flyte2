@@ -34,6 +34,7 @@ message ModelAppInput {
   repeated ModelCodeSource codes = 9;
   ModelResourceDefinition resource_definition = 10;
   repeated aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 11;
+  string model_cache_size = 12;
 }
 
 // ModelCodeSource describes a repository or archive source for model files.
@@ -60,6 +61,15 @@ message ModelCodeSourceView {
   bool token_configured = 4;
 }
 
+// ModelCachePVC describes the automatically managed model-cache volume.
+message ModelCachePVC {
+  string name = 1;
+  string storage_class_name = 2;
+  string requested_size = 3;
+  string capacity = 4;
+  bool expandable = 5;
+}
+
 // Editable model-app configuration plus immutable, redacted source metadata.
 message ModelAppConfig {
   Identifier app_id = 1 [(buf.validate.field).required = true];
@@ -70,6 +80,7 @@ message ModelAppConfig {
   repeated ModelCodeSourceView codes = 6;
   ModelResourceDefinition resource_definition = 7;
   repeated aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 8;
+  ModelCachePVC model_cache_pvc = 9;
 }
 
 message GetModelAppConfigRequest {
@@ -89,6 +100,7 @@ message UpdateModelAppRequest {
   ModelResourceDefinition resource_definition = 5;
   repeated aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 6;
   string reason = 7 [(buf.validate.field).string.max_len = 100];
+  string model_cache_size = 8;
 }
 
 message UpdateModelAppResponse {

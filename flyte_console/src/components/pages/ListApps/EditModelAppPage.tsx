@@ -54,10 +54,10 @@ export function EditModelAppPage() {
   const detailHref = `/v2/domain/${params.domain}/project/${params.project}/apps/${params.appId}`;
   const configMatchesRoute = Boolean(
     config?.appId &&
-      config.appId.org === org &&
-      config.appId.project === params.project &&
-      config.appId.domain === params.domain &&
-      config.appId.name === params.appId,
+    config.appId.org === org &&
+    config.appId.project === params.project &&
+    config.appId.domain === params.domain &&
+    config.appId.name === params.appId,
   );
 
   useEffect(() => {
@@ -136,7 +136,10 @@ export function EditModelAppPage() {
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!config?.appId || !configMatchesRoute || isLoading) return;
-    const validationError = validateModelAppFormValues(values);
+    const validationError = validateModelAppFormValues(values, {
+      currentModelCacheSize: config.modelCachePvc?.capacity,
+      modelCacheExpandable: config.modelCachePvc?.expandable,
+    });
     if (validationError) {
       setError(validationError);
       return;
@@ -223,6 +226,10 @@ export function EditModelAppPage() {
               readOnlyIdentity
               readOnlySource
               tokenConfigured={tokenConfigured}
+              modelCachePvc={config?.modelCachePvc}
+              modelCacheSizeDisabled={
+                config?.modelCachePvc?.expandable === false
+              }
             />
           </form>
         </div>

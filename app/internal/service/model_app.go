@@ -39,7 +39,7 @@ const (
 	defaultVLLMImage      = "docker.ops.fzyun.io:5000/vllm/vllm-openai:latest"
 	defaultVLLMPort       = 8000
 	defaultModelPVCSize   = "80Gi"
-	defaultStorageClass   = "local-path"
+	defaultStorageClass   = "bj1-ebs"
 	defaultGPUResourceKey = "nvidia.com/gpu"
 	modelPVCMountPath     = "/models"
 	huggingFaceCachePath  = "/root/.cache/huggingface"
@@ -216,8 +216,12 @@ func buildModelApp(input *flyteapp.ModelAppInput, cloudStorageMounts []resolvedM
 
 	pvcName := auxResourceName(appID, "model-cache")
 	secretName := auxResourceName(appID, "model-downloader")
+	modelCacheSize, err := resolveModelCacheSize(input.GetModelCacheSize())
+	if err != nil {
+		return nil, appk8s.AppAuxResources{}, err
+	}
 	podSpec := buildModelPodSpec(image, args, port, input.GetResourceDefinition(), pvcName, secretName, len(downloaderCodes) > 0)
-	resources, err := buildModelAuxResources(pvcName, secretName, downloaderCodes)
+	resources, err := buildModelAuxResources(pvcName, secretName, downloaderCodes, modelCacheSize)
 	if err != nil {
 		return nil, appk8s.AppAuxResources{}, err
 	}
@@ -247,7 +251,7 @@ func buildModelApp(input *flyteapp.ModelAppInput, cloudStorageMounts []resolvedM
 				Name:             displayName,
 				ShortDescription: "OpenAI-compatible model server",
 			},
-			Inputs:   modelInputs(input, modelCode, modelPath, pvcName),
+			Inputs:   modelInputs(input, modelCode, modelPath, pvcName, modelCacheSize),
 			Links:    []*flyteapp.Link{{Path: "/v1/models", Title: "Models", IsRelative: true}},
 			Timeouts: &flyteapp.TimeoutConfig{RequestTimeout: durationpb.New(time.Hour)},
 		},
@@ -383,7 +387,26 @@ func modelResourceRequirements(def *flyteapp.ModelResourceDefinition) corev1.Res
 	return corev1.ResourceRequirements{Requests: reqs, Limits: limits}
 }
 
-func buildModelAuxResources(pvcName, secretName string, codes []aionedownloader.Code) (appk8s.AppAuxResources, error) {
+func resolveModelCacheSize(value string) (string, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		trimmed = defaultModelPVCSize
+	}
+	quantity, err := k8sresource.ParseQuantity(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("model cache PVC size must be a valid Kubernetes quantity: %w", err)
+	}
+	if quantity.Sign() <= 0 {
+		return "", fmt.Errorf("model cache PVC size must be positive")
+	}
+	return quantity.String(), nil
+}
+
+func buildModelAuxResources(pvcName, secretName string, codes []aionedownloader.Code, modelCacheSize string) (appk8s.AppAuxResources, error) {
+	size, err := resolveModelCacheSize(modelCacheSize)
+	if err != nil {
+		return appk8s.AppAuxResources{}, err
+	}
 	storageClassName := defaultStorageClass
 	resources := appk8s.AppAuxResources{
 		PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{{
@@ -392,7 +415,7 @@ func buildModelAuxResources(pvcName, secretName string, codes []aionedownloader.
 				AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 				StorageClassName: &storageClassName,
 				Resources: corev1.VolumeResourceRequirements{
-					Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse(defaultModelPVCSize)},
+					Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse(size)},
 				},
 			},
 		}},
@@ -412,12 +435,13 @@ func buildModelAuxResources(pvcName, secretName string, codes []aionedownloader.
 	return resources, nil
 }
 
-func modelInputs(input *flyteapp.ModelAppInput, modelCode, modelPath, pvcName string) *flyteapp.InputList {
+func modelInputs(input *flyteapp.ModelAppInput, modelCode, modelPath, pvcName, modelCacheSize string) *flyteapp.InputList {
 	def := input.GetResourceDefinition()
 	items := []*flyteapp.Input{
 		stringInput("code", modelCode),
 		stringInput("image", resolveModelImage(input.GetImage())),
 		stringInput("model_cache_pvc", pvcName),
+		stringInput("model_cache_size", modelCacheSize),
 	}
 	if modelPath != "" {
 		items = append(items, stringInput("model_path", modelPath))

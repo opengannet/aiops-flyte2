@@ -68,6 +68,7 @@ describe("CreateModelAppPage", () => {
   it("does not expose cloud storage controls and submits without mounts", async () => {
     const user = userEvent.setup();
     render(<CreateModelAppPage />);
+    expect(screen.getByLabelText("模型缓存 PVC 容量 (Gi)")).toHaveValue(80);
 
     expect(screen.getByRole("heading", { name: "创建模型应用" })).toBeVisible();
     expect(screen.getByText("模型信息")).toBeVisible();
@@ -87,6 +88,9 @@ describe("CreateModelAppPage", () => {
     await waitFor(() => expect(mocks.createModelApp).toHaveBeenCalledTimes(1));
     expect(mocks.listCloudStorages).not.toHaveBeenCalled();
     expect(mocks.createCloudStorage).not.toHaveBeenCalled();
+    expect(mocks.createModelApp.mock.calls[0][0].model.modelCacheSize).toBe(
+      "80Gi",
+    );
     expect(
       mocks.createModelApp.mock.calls[0][0].model.cloudStorageMounts,
     ).toEqual([]);

@@ -19,7 +19,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file flyteidl2/app/app_payload.proto.
  */
 export const file_flyteidl2_app_app_payload: GenFile = /*@__PURE__*/
-  fileDesc("Ch9mbHl0ZWlkbDIvYXBwL2FwcF9wYXlsb2FkLnByb3RvEg1mbHl0ZWlkbDIuYXBwIjgKDUNyZWF0ZVJlcXVlc3QSJwoDYXBwGAEgASgLMhIuZmx5dGVpZGwyLmFwcC5BcHBCBrpIA8gBASJMChVDcmVhdGVNb2RlbEFwcFJlcXVlc3QSMwoFbW9kZWwYASABKAsyHC5mbHl0ZWlkbDIuYXBwLk1vZGVsQXBwSW5wdXRCBrpIA8gBASLYAgoNTW9kZWxBcHBJbnB1dBILCgNvcmcYASABKAkSGAoHcHJvamVjdBgCIAEoCUIHukgEcgIQARIXCgZkb21haW4YAyABKAlCB7pIBHICEAESDAoEbmFtZRgEIAEoCRIKCgJpZBgFIAEoCRIMCgRjb2RlGAYgASgJEg0KBWltYWdlGAcgASgJEg0KBXBhcmFtGAggASgJEi0KBWNvZGVzGAkgAygLMh4uZmx5dGVpZGwyLmFwcC5Nb2RlbENvZGVTb3VyY2USQwoTcmVzb3VyY2VfZGVmaW5pdGlvbhgKIAEoCzImLmZseXRlaWRsMi5hcHAuTW9kZWxSZXNvdXJjZURlZmluaXRpb24STQoUY2xvdWRfc3RvcmFnZV9tb3VudHMYCyADKAsyLy5mbHl0ZWlkbDIuYWlvbmUuY2xvdWRzdG9yYWdlLkNsb3VkU3RvcmFnZU1vdW50IlMKD01vZGVsQ29kZVNvdXJjZRITCgJpZBgBIAEoCUIHukgEcgIQARIOCgZicmFuY2gYAiABKAkSDAoEcGF0aBgDIAEoCRINCgV0b2tlbhgEIAEoCSJUChdNb2RlbFJlc291cmNlRGVmaW5pdGlvbhILCgNjcHUYASABKAkSDgoGbWVtb3J5GAIgASgJEgsKA2dwdRgDIAEoDRIPCgdncHVfa2V5GAQgASgJIlkKE01vZGVsQ29kZVNvdXJjZVZpZXcSCgoCaWQYASABKAkSDgoGYnJhbmNoGAIgASgJEgwKBHBhdGgYAyABKAkSGAoQdG9rZW5fY29uZmlndXJlZBgEIAEoCCLEAgoOTW9kZWxBcHBDb25maWcSMQoGYXBwX2lkGAEgASgLMhkuZmx5dGVpZGwyLmFwcC5JZGVudGlmaWVyQga6SAPIAQESDAoEbmFtZRgCIAEoCRIMCgRjb2RlGAMgASgJEg0KBWltYWdlGAQgASgJEg0KBXBhcmFtGAUgASgJEjEKBWNvZGVzGAYgAygLMiIuZmx5dGVpZGwyLmFwcC5Nb2RlbENvZGVTb3VyY2VWaWV3EkMKE3Jlc291cmNlX2RlZmluaXRpb24YByABKAsyJi5mbHl0ZWlkbDIuYXBwLk1vZGVsUmVzb3VyY2VEZWZpbml0aW9uEk0KFGNsb3VkX3N0b3JhZ2VfbW91bnRzGAggAygLMi8uZmx5dGVpZGwyLmFpb25lLmNsb3Vkc3RvcmFnZS5DbG91ZFN0b3JhZ2VNb3VudCJNChhHZXRNb2RlbEFwcENvbmZpZ1JlcXVlc3QSMQoGYXBwX2lkGAEgASgLMhkuZmx5dGVpZGwyLmFwcC5JZGVudGlmaWVyQga6SAPIAQEiSQoZR2V0TW9kZWxBcHBDb25maWdSZXNwb25zZRIsCgVtb2RlbBgBIAEoCzIdLmZseXRlaWRsMi5hcHAuTW9kZWxBcHBDb25maWciowIKFVVwZGF0ZU1vZGVsQXBwUmVxdWVzdBIxCgZhcHBfaWQYASABKAsyGS5mbHl0ZWlkbDIuYXBwLklkZW50aWZpZXJCBrpIA8gBARIMCgRuYW1lGAIgASgJEg0KBWltYWdlGAMgASgJEg0KBXBhcmFtGAQgASgJEkMKE3Jlc291cmNlX2RlZmluaXRpb24YBSABKAsyJi5mbHl0ZWlkbDIuYXBwLk1vZGVsUmVzb3VyY2VEZWZpbml0aW9uEk0KFGNsb3VkX3N0b3JhZ2VfbW91bnRzGAYgAygLMi8uZmx5dGVpZGwyLmFpb25lLmNsb3Vkc3RvcmFnZS5DbG91ZFN0b3JhZ2VNb3VudBIXCgZyZWFzb24YByABKAlCB7pIBHICGGQiOQoWVXBkYXRlTW9kZWxBcHBSZXNwb25zZRIfCgNhcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcCIxCg5DcmVhdGVSZXNwb25zZRIfCgNhcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcCJ5CgpHZXRSZXF1ZXN0EisKBmFwcF9pZBgBIAEoCzIZLmZseXRlaWRsMi5hcHAuSWRlbnRpZmllckgAEikKB2luZ3Jlc3MYAiABKAsyFi5mbHl0ZWlkbDIuYXBwLkluZ3Jlc3NIAEITCgppZGVudGlmaWVyEgW6SAIIASIuCgtHZXRSZXNwb25zZRIfCgNhcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcCJRCg1VcGRhdGVSZXF1ZXN0EicKA2FwcBgBIAEoCzISLmZseXRlaWRsMi5hcHAuQXBwQga6SAPIAQESFwoGcmVhc29uGAIgASgJQge6SARyAhhkIjEKDlVwZGF0ZVJlc3BvbnNlEh8KA2FwcBgBIAEoCzISLmZseXRlaWRsMi5hcHAuQXBwIkIKDURlbGV0ZVJlcXVlc3QSMQoGYXBwX2lkGAEgASgLMhkuZmx5dGVpZGwyLmFwcC5JZGVudGlmaWVyQga6SAPIAQEiEAoORGVsZXRlUmVzcG9uc2UigQIKC0xpc3RSZXF1ZXN0Ei4KB3JlcXVlc3QYASABKAsyHS5mbHl0ZWlkbDIuY29tbW9uLkxpc3RSZXF1ZXN0EhYKA29yZxgCIAEoCUIHukgEcgIQAUgAEjkKCmNsdXN0ZXJfaWQYAyABKAsyIy5mbHl0ZWlkbDIuY29tbW9uLkNsdXN0ZXJJZGVudGlmaWVySAASNgoHcHJvamVjdBgEIAEoCzIjLmZseXRlaWRsMi5jb21tb24uUHJvamVjdElkZW50aWZpZXJIABIjChtkaXNhYmxlX2lkZW50aXR5X2VucmljaG1lbnQYBSABKAhCEgoJZmlsdGVyX2J5EgW6SAIIASI/CgxMaXN0UmVzcG9uc2USIAoEYXBwcxgBIAMoCzISLmZseXRlaWRsMi5hcHAuQXBwEg0KBXRva2VuGAIgASgJItcBCgxXYXRjaFJlcXVlc3QSFgoDb3JnGAEgASgJQge6SARyAhABSAASOQoKY2x1c3Rlcl9pZBgCIAEoCzIjLmZseXRlaWRsMi5jb21tb24uQ2x1c3RlcklkZW50aWZpZXJIABI2Cgdwcm9qZWN0GAMgASgLMiMuZmx5dGVpZGwyLmNvbW1vbi5Qcm9qZWN0SWRlbnRpZmllckgAEisKBmFwcF9pZBgEIAEoCzIZLmZseXRlaWRsMi5hcHAuSWRlbnRpZmllckgAQg8KBnRhcmdldBIFukgCCAEiLgoLQ3JlYXRlRXZlbnQSHwoDYXBwGAEgASgLMhIuZmx5dGVpZGwyLmFwcC5BcHAiWwoLVXBkYXRlRXZlbnQSJwoLdXBkYXRlZF9hcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcBIjCgdvbGRfYXBwGAIgASgLMhIuZmx5dGVpZGwyLmFwcC5BcHAiLgoLRGVsZXRlRXZlbnQSHwoDYXBwGAEgASgLMhIuZmx5dGVpZGwyLmFwcC5BcHAitAEKDVdhdGNoUmVzcG9uc2USMgoMY3JlYXRlX2V2ZW50GAEgASgLMhouZmx5dGVpZGwyLmFwcC5DcmVhdGVFdmVudEgAEjIKDHVwZGF0ZV9ldmVudBgCIAEoCzIaLmZseXRlaWRsMi5hcHAuVXBkYXRlRXZlbnRIABIyCgxkZWxldGVfZXZlbnQYAyABKAsyGi5mbHl0ZWlkbDIuYXBwLkRlbGV0ZUV2ZW50SABCBwoFZXZlbnQiPgoTVXBkYXRlU3RhdHVzUmVxdWVzdBInCgNhcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcEIGukgDyAEBIjcKFFVwZGF0ZVN0YXR1c1Jlc3BvbnNlEh8KA2FwcBgBIAEoCzISLmZseXRlaWRsMi5hcHAuQXBwIkcKDExlYXNlUmVxdWVzdBI3CgJpZBgBIAEoCzIjLmZseXRlaWRsMi5jb21tb24uQ2x1c3RlcklkZW50aWZpZXJCBrpIA8gBASIxCg1MZWFzZVJlc3BvbnNlEiAKBGFwcHMYASADKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcEKuAQoRY29tLmZseXRlaWRsMi5hcHBCD0FwcFBheWxvYWRQcm90b0gCUAFaMWdpdGh1Yi5jb20vZmx5dGVvcmcvZmx5dGUvdjIvZ2VuL2dvL2ZseXRlaWRsMi9hcHCiAgNGQViqAg1GbHl0ZWlkbDIuQXBwygINRmx5dGVpZGwyXEFwcOICGUZseXRlaWRsMlxBcHBcR1BCTWV0YWRhdGHqAg5GbHl0ZWlkbDI6OkFwcGIGcHJvdG8z", [file_buf_validate_validate, file_flyteidl2_aione_cloudstorage_cloud_storage_definition, file_flyteidl2_app_app_definition, file_flyteidl2_common_identifier, file_flyteidl2_common_list]);
+  fileDesc("Ch9mbHl0ZWlkbDIvYXBwL2FwcF9wYXlsb2FkLnByb3RvEg1mbHl0ZWlkbDIuYXBwIjgKDUNyZWF0ZVJlcXVlc3QSJwoDYXBwGAEgASgLMhIuZmx5dGVpZGwyLmFwcC5BcHBCBrpIA8gBASJMChVDcmVhdGVNb2RlbEFwcFJlcXVlc3QSMwoFbW9kZWwYASABKAsyHC5mbHl0ZWlkbDIuYXBwLk1vZGVsQXBwSW5wdXRCBrpIA8gBASLyAgoNTW9kZWxBcHBJbnB1dBILCgNvcmcYASABKAkSGAoHcHJvamVjdBgCIAEoCUIHukgEcgIQARIXCgZkb21haW4YAyABKAlCB7pIBHICEAESDAoEbmFtZRgEIAEoCRIKCgJpZBgFIAEoCRIMCgRjb2RlGAYgASgJEg0KBWltYWdlGAcgASgJEg0KBXBhcmFtGAggASgJEi0KBWNvZGVzGAkgAygLMh4uZmx5dGVpZGwyLmFwcC5Nb2RlbENvZGVTb3VyY2USQwoTcmVzb3VyY2VfZGVmaW5pdGlvbhgKIAEoCzImLmZseXRlaWRsMi5hcHAuTW9kZWxSZXNvdXJjZURlZmluaXRpb24STQoUY2xvdWRfc3RvcmFnZV9tb3VudHMYCyADKAsyLy5mbHl0ZWlkbDIuYWlvbmUuY2xvdWRzdG9yYWdlLkNsb3VkU3RvcmFnZU1vdW50EhgKEG1vZGVsX2NhY2hlX3NpemUYDCABKAkiUwoPTW9kZWxDb2RlU291cmNlEhMKAmlkGAEgASgJQge6SARyAhABEg4KBmJyYW5jaBgCIAEoCRIMCgRwYXRoGAMgASgJEg0KBXRva2VuGAQgASgJIlQKF01vZGVsUmVzb3VyY2VEZWZpbml0aW9uEgsKA2NwdRgBIAEoCRIOCgZtZW1vcnkYAiABKAkSCwoDZ3B1GAMgASgNEg8KB2dwdV9rZXkYBCABKAkiWQoTTW9kZWxDb2RlU291cmNlVmlldxIKCgJpZBgBIAEoCRIOCgZicmFuY2gYAiABKAkSDAoEcGF0aBgDIAEoCRIYChB0b2tlbl9jb25maWd1cmVkGAQgASgIIncKDU1vZGVsQ2FjaGVQVkMSDAoEbmFtZRgBIAEoCRIaChJzdG9yYWdlX2NsYXNzX25hbWUYAiABKAkSFgoOcmVxdWVzdGVkX3NpemUYAyABKAkSEAoIY2FwYWNpdHkYBCABKAkSEgoKZXhwYW5kYWJsZRgFIAEoCCL7AgoOTW9kZWxBcHBDb25maWcSMQoGYXBwX2lkGAEgASgLMhkuZmx5dGVpZGwyLmFwcC5JZGVudGlmaWVyQga6SAPIAQESDAoEbmFtZRgCIAEoCRIMCgRjb2RlGAMgASgJEg0KBWltYWdlGAQgASgJEg0KBXBhcmFtGAUgASgJEjEKBWNvZGVzGAYgAygLMiIuZmx5dGVpZGwyLmFwcC5Nb2RlbENvZGVTb3VyY2VWaWV3EkMKE3Jlc291cmNlX2RlZmluaXRpb24YByABKAsyJi5mbHl0ZWlkbDIuYXBwLk1vZGVsUmVzb3VyY2VEZWZpbml0aW9uEk0KFGNsb3VkX3N0b3JhZ2VfbW91bnRzGAggAygLMi8uZmx5dGVpZGwyLmFpb25lLmNsb3Vkc3RvcmFnZS5DbG91ZFN0b3JhZ2VNb3VudBI1Cg9tb2RlbF9jYWNoZV9wdmMYCSABKAsyHC5mbHl0ZWlkbDIuYXBwLk1vZGVsQ2FjaGVQVkMiTQoYR2V0TW9kZWxBcHBDb25maWdSZXF1ZXN0EjEKBmFwcF9pZBgBIAEoCzIZLmZseXRlaWRsMi5hcHAuSWRlbnRpZmllckIGukgDyAEBIkkKGUdldE1vZGVsQXBwQ29uZmlnUmVzcG9uc2USLAoFbW9kZWwYASABKAsyHS5mbHl0ZWlkbDIuYXBwLk1vZGVsQXBwQ29uZmlnIr0CChVVcGRhdGVNb2RlbEFwcFJlcXVlc3QSMQoGYXBwX2lkGAEgASgLMhkuZmx5dGVpZGwyLmFwcC5JZGVudGlmaWVyQga6SAPIAQESDAoEbmFtZRgCIAEoCRINCgVpbWFnZRgDIAEoCRINCgVwYXJhbRgEIAEoCRJDChNyZXNvdXJjZV9kZWZpbml0aW9uGAUgASgLMiYuZmx5dGVpZGwyLmFwcC5Nb2RlbFJlc291cmNlRGVmaW5pdGlvbhJNChRjbG91ZF9zdG9yYWdlX21vdW50cxgGIAMoCzIvLmZseXRlaWRsMi5haW9uZS5jbG91ZHN0b3JhZ2UuQ2xvdWRTdG9yYWdlTW91bnQSFwoGcmVhc29uGAcgASgJQge6SARyAhhkEhgKEG1vZGVsX2NhY2hlX3NpemUYCCABKAkiOQoWVXBkYXRlTW9kZWxBcHBSZXNwb25zZRIfCgNhcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcCIxCg5DcmVhdGVSZXNwb25zZRIfCgNhcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcCJ5CgpHZXRSZXF1ZXN0EisKBmFwcF9pZBgBIAEoCzIZLmZseXRlaWRsMi5hcHAuSWRlbnRpZmllckgAEikKB2luZ3Jlc3MYAiABKAsyFi5mbHl0ZWlkbDIuYXBwLkluZ3Jlc3NIAEITCgppZGVudGlmaWVyEgW6SAIIASIuCgtHZXRSZXNwb25zZRIfCgNhcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcCJRCg1VcGRhdGVSZXF1ZXN0EicKA2FwcBgBIAEoCzISLmZseXRlaWRsMi5hcHAuQXBwQga6SAPIAQESFwoGcmVhc29uGAIgASgJQge6SARyAhhkIjEKDlVwZGF0ZVJlc3BvbnNlEh8KA2FwcBgBIAEoCzISLmZseXRlaWRsMi5hcHAuQXBwIkIKDURlbGV0ZVJlcXVlc3QSMQoGYXBwX2lkGAEgASgLMhkuZmx5dGVpZGwyLmFwcC5JZGVudGlmaWVyQga6SAPIAQEiEAoORGVsZXRlUmVzcG9uc2UigQIKC0xpc3RSZXF1ZXN0Ei4KB3JlcXVlc3QYASABKAsyHS5mbHl0ZWlkbDIuY29tbW9uLkxpc3RSZXF1ZXN0EhYKA29yZxgCIAEoCUIHukgEcgIQAUgAEjkKCmNsdXN0ZXJfaWQYAyABKAsyIy5mbHl0ZWlkbDIuY29tbW9uLkNsdXN0ZXJJZGVudGlmaWVySAASNgoHcHJvamVjdBgEIAEoCzIjLmZseXRlaWRsMi5jb21tb24uUHJvamVjdElkZW50aWZpZXJIABIjChtkaXNhYmxlX2lkZW50aXR5X2VucmljaG1lbnQYBSABKAhCEgoJZmlsdGVyX2J5EgW6SAIIASI/CgxMaXN0UmVzcG9uc2USIAoEYXBwcxgBIAMoCzISLmZseXRlaWRsMi5hcHAuQXBwEg0KBXRva2VuGAIgASgJItcBCgxXYXRjaFJlcXVlc3QSFgoDb3JnGAEgASgJQge6SARyAhABSAASOQoKY2x1c3Rlcl9pZBgCIAEoCzIjLmZseXRlaWRsMi5jb21tb24uQ2x1c3RlcklkZW50aWZpZXJIABI2Cgdwcm9qZWN0GAMgASgLMiMuZmx5dGVpZGwyLmNvbW1vbi5Qcm9qZWN0SWRlbnRpZmllckgAEisKBmFwcF9pZBgEIAEoCzIZLmZseXRlaWRsMi5hcHAuSWRlbnRpZmllckgAQg8KBnRhcmdldBIFukgCCAEiLgoLQ3JlYXRlRXZlbnQSHwoDYXBwGAEgASgLMhIuZmx5dGVpZGwyLmFwcC5BcHAiWwoLVXBkYXRlRXZlbnQSJwoLdXBkYXRlZF9hcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcBIjCgdvbGRfYXBwGAIgASgLMhIuZmx5dGVpZGwyLmFwcC5BcHAiLgoLRGVsZXRlRXZlbnQSHwoDYXBwGAEgASgLMhIuZmx5dGVpZGwyLmFwcC5BcHAitAEKDVdhdGNoUmVzcG9uc2USMgoMY3JlYXRlX2V2ZW50GAEgASgLMhouZmx5dGVpZGwyLmFwcC5DcmVhdGVFdmVudEgAEjIKDHVwZGF0ZV9ldmVudBgCIAEoCzIaLmZseXRlaWRsMi5hcHAuVXBkYXRlRXZlbnRIABIyCgxkZWxldGVfZXZlbnQYAyABKAsyGi5mbHl0ZWlkbDIuYXBwLkRlbGV0ZUV2ZW50SABCBwoFZXZlbnQiPgoTVXBkYXRlU3RhdHVzUmVxdWVzdBInCgNhcHAYASABKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcEIGukgDyAEBIjcKFFVwZGF0ZVN0YXR1c1Jlc3BvbnNlEh8KA2FwcBgBIAEoCzISLmZseXRlaWRsMi5hcHAuQXBwIkcKDExlYXNlUmVxdWVzdBI3CgJpZBgBIAEoCzIjLmZseXRlaWRsMi5jb21tb24uQ2x1c3RlcklkZW50aWZpZXJCBrpIA8gBASIxCg1MZWFzZVJlc3BvbnNlEiAKBGFwcHMYASADKAsyEi5mbHl0ZWlkbDIuYXBwLkFwcEKuAQoRY29tLmZseXRlaWRsMi5hcHBCD0FwcFBheWxvYWRQcm90b0gCUAFaMWdpdGh1Yi5jb20vZmx5dGVvcmcvZmx5dGUvdjIvZ2VuL2dvL2ZseXRlaWRsMi9hcHCiAgNGQViqAg1GbHl0ZWlkbDIuQXBwygINRmx5dGVpZGwyXEFwcOICGUZseXRlaWRsMlxBcHBcR1BCTWV0YWRhdGHqAg5GbHl0ZWlkbDI6OkFwcGIGcHJvdG8z", [file_buf_validate_validate, file_flyteidl2_aione_cloudstorage_cloud_storage_definition, file_flyteidl2_app_app_definition, file_flyteidl2_common_identifier, file_flyteidl2_common_list]);
 
 /**
  * Request message for creating an app.
@@ -121,6 +121,11 @@ export type ModelAppInput = Message<"flyteidl2.app.ModelAppInput"> & {
    * @generated from field: repeated flyteidl2.aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 11;
    */
   cloudStorageMounts: CloudStorageMount[];
+
+  /**
+   * @generated from field: string model_cache_size = 12;
+   */
+  modelCacheSize: string;
 };
 
 /**
@@ -233,6 +238,45 @@ export const ModelCodeSourceViewSchema: GenMessage<ModelCodeSourceView> = /*@__P
   messageDesc(file_flyteidl2_app_app_payload, 5);
 
 /**
+ * ModelCachePVC describes the automatically managed model-cache volume.
+ *
+ * @generated from message flyteidl2.app.ModelCachePVC
+ */
+export type ModelCachePVC = Message<"flyteidl2.app.ModelCachePVC"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string storage_class_name = 2;
+   */
+  storageClassName: string;
+
+  /**
+   * @generated from field: string requested_size = 3;
+   */
+  requestedSize: string;
+
+  /**
+   * @generated from field: string capacity = 4;
+   */
+  capacity: string;
+
+  /**
+   * @generated from field: bool expandable = 5;
+   */
+  expandable: boolean;
+};
+
+/**
+ * Describes the message flyteidl2.app.ModelCachePVC.
+ * Use `create(ModelCachePVCSchema)` to create a new message.
+ */
+export const ModelCachePVCSchema: GenMessage<ModelCachePVC> = /*@__PURE__*/
+  messageDesc(file_flyteidl2_app_app_payload, 6);
+
+/**
  * Editable model-app configuration plus immutable, redacted source metadata.
  *
  * @generated from message flyteidl2.app.ModelAppConfig
@@ -277,6 +321,11 @@ export type ModelAppConfig = Message<"flyteidl2.app.ModelAppConfig"> & {
    * @generated from field: repeated flyteidl2.aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 8;
    */
   cloudStorageMounts: CloudStorageMount[];
+
+  /**
+   * @generated from field: flyteidl2.app.ModelCachePVC model_cache_pvc = 9;
+   */
+  modelCachePvc?: ModelCachePVC;
 };
 
 /**
@@ -284,7 +333,7 @@ export type ModelAppConfig = Message<"flyteidl2.app.ModelAppConfig"> & {
  * Use `create(ModelAppConfigSchema)` to create a new message.
  */
 export const ModelAppConfigSchema: GenMessage<ModelAppConfig> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 6);
+  messageDesc(file_flyteidl2_app_app_payload, 7);
 
 /**
  * @generated from message flyteidl2.app.GetModelAppConfigRequest
@@ -301,7 +350,7 @@ export type GetModelAppConfigRequest = Message<"flyteidl2.app.GetModelAppConfigR
  * Use `create(GetModelAppConfigRequestSchema)` to create a new message.
  */
 export const GetModelAppConfigRequestSchema: GenMessage<GetModelAppConfigRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 7);
+  messageDesc(file_flyteidl2_app_app_payload, 8);
 
 /**
  * @generated from message flyteidl2.app.GetModelAppConfigResponse
@@ -318,7 +367,7 @@ export type GetModelAppConfigResponse = Message<"flyteidl2.app.GetModelAppConfig
  * Use `create(GetModelAppConfigResponseSchema)` to create a new message.
  */
 export const GetModelAppConfigResponseSchema: GenMessage<GetModelAppConfigResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 8);
+  messageDesc(file_flyteidl2_app_app_payload, 9);
 
 /**
  * Only runtime fields are accepted; identity and model source remain immutable.
@@ -360,6 +409,11 @@ export type UpdateModelAppRequest = Message<"flyteidl2.app.UpdateModelAppRequest
    * @generated from field: string reason = 7;
    */
   reason: string;
+
+  /**
+   * @generated from field: string model_cache_size = 8;
+   */
+  modelCacheSize: string;
 };
 
 /**
@@ -367,7 +421,7 @@ export type UpdateModelAppRequest = Message<"flyteidl2.app.UpdateModelAppRequest
  * Use `create(UpdateModelAppRequestSchema)` to create a new message.
  */
 export const UpdateModelAppRequestSchema: GenMessage<UpdateModelAppRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 9);
+  messageDesc(file_flyteidl2_app_app_payload, 10);
 
 /**
  * @generated from message flyteidl2.app.UpdateModelAppResponse
@@ -384,7 +438,7 @@ export type UpdateModelAppResponse = Message<"flyteidl2.app.UpdateModelAppRespon
  * Use `create(UpdateModelAppResponseSchema)` to create a new message.
  */
 export const UpdateModelAppResponseSchema: GenMessage<UpdateModelAppResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 10);
+  messageDesc(file_flyteidl2_app_app_payload, 11);
 
 /**
  * Response message for creating an app.
@@ -405,7 +459,7 @@ export type CreateResponse = Message<"flyteidl2.app.CreateResponse"> & {
  * Use `create(CreateResponseSchema)` to create a new message.
  */
 export const CreateResponseSchema: GenMessage<CreateResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 11);
+  messageDesc(file_flyteidl2_app_app_payload, 12);
 
 /**
  * Request message for retrieving an app.
@@ -442,7 +496,7 @@ export type GetRequest = Message<"flyteidl2.app.GetRequest"> & {
  * Use `create(GetRequestSchema)` to create a new message.
  */
 export const GetRequestSchema: GenMessage<GetRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 12);
+  messageDesc(file_flyteidl2_app_app_payload, 13);
 
 /**
  * Response message for retrieving an app.
@@ -463,7 +517,7 @@ export type GetResponse = Message<"flyteidl2.app.GetResponse"> & {
  * Use `create(GetResponseSchema)` to create a new message.
  */
 export const GetResponseSchema: GenMessage<GetResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 13);
+  messageDesc(file_flyteidl2_app_app_payload, 14);
 
 /**
  * Request message for updating an app.
@@ -489,7 +543,7 @@ export type UpdateRequest = Message<"flyteidl2.app.UpdateRequest"> & {
  * Use `create(UpdateRequestSchema)` to create a new message.
  */
 export const UpdateRequestSchema: GenMessage<UpdateRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 14);
+  messageDesc(file_flyteidl2_app_app_payload, 15);
 
 /**
  * Response message for updating an app.
@@ -510,7 +564,7 @@ export type UpdateResponse = Message<"flyteidl2.app.UpdateResponse"> & {
  * Use `create(UpdateResponseSchema)` to create a new message.
  */
 export const UpdateResponseSchema: GenMessage<UpdateResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 15);
+  messageDesc(file_flyteidl2_app_app_payload, 16);
 
 /**
  * Request message for deleting an app.
@@ -531,7 +585,7 @@ export type DeleteRequest = Message<"flyteidl2.app.DeleteRequest"> & {
  * Use `create(DeleteRequestSchema)` to create a new message.
  */
 export const DeleteRequestSchema: GenMessage<DeleteRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 16);
+  messageDesc(file_flyteidl2_app_app_payload, 17);
 
 /**
  * Response message for deleting an app.
@@ -546,7 +600,7 @@ export type DeleteResponse = Message<"flyteidl2.app.DeleteResponse"> & {
  * Use `create(DeleteResponseSchema)` to create a new message.
  */
 export const DeleteResponseSchema: GenMessage<DeleteResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 17);
+  messageDesc(file_flyteidl2_app_app_payload, 18);
 
 /**
  * Request message for listing apps.
@@ -603,7 +657,7 @@ export type ListRequest = Message<"flyteidl2.app.ListRequest"> & {
  * Use `create(ListRequestSchema)` to create a new message.
  */
 export const ListRequestSchema: GenMessage<ListRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 18);
+  messageDesc(file_flyteidl2_app_app_payload, 19);
 
 /**
  * Response message for listing apps.
@@ -631,7 +685,7 @@ export type ListResponse = Message<"flyteidl2.app.ListResponse"> & {
  * Use `create(ListResponseSchema)` to create a new message.
  */
 export const ListResponseSchema: GenMessage<ListResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 19);
+  messageDesc(file_flyteidl2_app_app_payload, 20);
 
 /**
  * Request message for watching app events.
@@ -682,7 +736,7 @@ export type WatchRequest = Message<"flyteidl2.app.WatchRequest"> & {
  * Use `create(WatchRequestSchema)` to create a new message.
  */
 export const WatchRequestSchema: GenMessage<WatchRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 20);
+  messageDesc(file_flyteidl2_app_app_payload, 21);
 
 /**
  * Event message for app creation.
@@ -703,7 +757,7 @@ export type CreateEvent = Message<"flyteidl2.app.CreateEvent"> & {
  * Use `create(CreateEventSchema)` to create a new message.
  */
 export const CreateEventSchema: GenMessage<CreateEvent> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 21);
+  messageDesc(file_flyteidl2_app_app_payload, 22);
 
 /**
  * Event message for app update.
@@ -731,7 +785,7 @@ export type UpdateEvent = Message<"flyteidl2.app.UpdateEvent"> & {
  * Use `create(UpdateEventSchema)` to create a new message.
  */
 export const UpdateEventSchema: GenMessage<UpdateEvent> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 22);
+  messageDesc(file_flyteidl2_app_app_payload, 23);
 
 /**
  * Event message for app deletion.
@@ -752,7 +806,7 @@ export type DeleteEvent = Message<"flyteidl2.app.DeleteEvent"> & {
  * Use `create(DeleteEventSchema)` to create a new message.
  */
 export const DeleteEventSchema: GenMessage<DeleteEvent> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 23);
+  messageDesc(file_flyteidl2_app_app_payload, 24);
 
 /**
  * Response message for watching app events.
@@ -795,7 +849,7 @@ export type WatchResponse = Message<"flyteidl2.app.WatchResponse"> & {
  * Use `create(WatchResponseSchema)` to create a new message.
  */
 export const WatchResponseSchema: GenMessage<WatchResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 24);
+  messageDesc(file_flyteidl2_app_app_payload, 25);
 
 /**
  * Request message for updating app status.
@@ -816,7 +870,7 @@ export type UpdateStatusRequest = Message<"flyteidl2.app.UpdateStatusRequest"> &
  * Use `create(UpdateStatusRequestSchema)` to create a new message.
  */
 export const UpdateStatusRequestSchema: GenMessage<UpdateStatusRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 25);
+  messageDesc(file_flyteidl2_app_app_payload, 26);
 
 /**
  * Response message for updating app status.
@@ -837,7 +891,7 @@ export type UpdateStatusResponse = Message<"flyteidl2.app.UpdateStatusResponse">
  * Use `create(UpdateStatusResponseSchema)` to create a new message.
  */
 export const UpdateStatusResponseSchema: GenMessage<UpdateStatusResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 26);
+  messageDesc(file_flyteidl2_app_app_payload, 27);
 
 /**
  * Request message for leasing apps.
@@ -858,7 +912,7 @@ export type LeaseRequest = Message<"flyteidl2.app.LeaseRequest"> & {
  * Use `create(LeaseRequestSchema)` to create a new message.
  */
 export const LeaseRequestSchema: GenMessage<LeaseRequest> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 27);
+  messageDesc(file_flyteidl2_app_app_payload, 28);
 
 /**
  * Response message for leasing apps.
@@ -879,5 +933,4 @@ export type LeaseResponse = Message<"flyteidl2.app.LeaseResponse"> & {
  * Use `create(LeaseResponseSchema)` to create a new message.
  */
 export const LeaseResponseSchema: GenMessage<LeaseResponse> = /*@__PURE__*/
-  messageDesc(file_flyteidl2_app_app_payload, 28);
-
+  messageDesc(file_flyteidl2_app_app_payload, 29);

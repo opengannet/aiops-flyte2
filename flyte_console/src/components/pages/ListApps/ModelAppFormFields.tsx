@@ -4,6 +4,8 @@
 
 import type { ReactNode } from "react";
 
+import type { ModelCachePVC } from "@/gen/flyteidl2/app/app_payload_pb";
+
 import type { ModelAppFormValues } from "./modelAppUtils";
 
 export const modelAppInputClassName =
@@ -21,6 +23,8 @@ type Props = {
   readOnlyIdentity?: boolean;
   readOnlySource?: boolean;
   tokenConfigured?: boolean[];
+  modelCachePvc?: ModelCachePVC;
+  modelCacheSizeDisabled?: boolean;
 };
 
 export function ModelAppFormFields({
@@ -30,6 +34,8 @@ export function ModelAppFormFields({
   readOnlyIdentity = false,
   readOnlySource = false,
   tokenConfigured = [],
+  modelCachePvc,
+  modelCacheSizeDisabled = false,
 }: Props) {
   const sources = readOnlySource
     ? values.codes.filter(
@@ -103,6 +109,38 @@ export function ModelAppFormFields({
                   onFieldChange("memory", event.target.value)
                 }
               />
+            </ModelAppField>
+            <ModelAppField label="模型缓存 PVC 容量 (Gi)">
+              <input
+                aria-label="模型缓存 PVC 容量 (Gi)"
+                className={modelAppInputClassName}
+                disabled={modelCacheSizeDisabled}
+                inputMode="numeric"
+                min={1}
+                step={1}
+                type="number"
+                value={values.modelCacheSize}
+                onChange={(event) =>
+                  onFieldChange("modelCacheSize", event.target.value)
+                }
+              />
+              {modelCachePvc && (
+                <div className="space-y-1 text-xs dark:text-(--system-gray-6)">
+                  <div>PVC: {modelCachePvc.name || "-"}</div>
+                  <div>
+                    StorageClass: {modelCachePvc.storageClassName || "-"}
+                  </div>
+                  <div>
+                    请求: {modelCachePvc.requestedSize || "-"} / 容量:{" "}
+                    {modelCachePvc.capacity || "-"}
+                  </div>
+                  {!modelCachePvc.expandable && (
+                    <div className="text-amber-600 dark:text-amber-400">
+                      当前 PVC 不支持在线扩容，需要迁移或重建
+                    </div>
+                  )}
+                </div>
+              )}
             </ModelAppField>
             <ModelAppField label="GPU">
               <input

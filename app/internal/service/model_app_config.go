@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect"
 	corev1 "k8s.io/api/core/v1"
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 
 	appk8s "github.com/flyteorg/flyte/v2/app/internal/k8s"
 	aionedownloader "github.com/flyteorg/flyte/v2/flyteplugins/aione/downloader"
@@ -52,6 +53,10 @@ func (s *InternalAppService) GetModelAppConfig(
 	if err != nil {
 		return nil, err
 	}
+	modelCachePVC, err := s.modelCachePVCView(ctx, app)
+	if err != nil {
+		return nil, err
+	}
 	model := &flyteapp.ModelAppConfig{
 		AppId:              app.GetMetadata().GetId(),
 		Name:               app.GetSpec().GetProfile().GetName(),
@@ -61,6 +66,7 @@ func (s *InternalAppService) GetModelAppConfig(
 		Codes:              codes,
 		ResourceDefinition: modelResourcesFromContainer(app, container),
 		CloudStorageMounts: cloudStorageMounts,
+		ModelCachePvc:      modelCachePVC,
 	}
 	return connect.NewResponse(&flyteapp.GetModelAppConfigResponse{Model: model}), nil
 }
@@ -88,6 +94,10 @@ func (s *InternalAppService) UpdateModelApp(
 	if err := validateModelAppCloudStorageMounts(req.Msg.GetCloudStorageMounts(), modelPath); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	modelCacheSize, err := s.validateModelCacheResize(ctx, existing, req.Msg.GetModelCacheSize())
+	if err != nil {
+		return nil, err
+	}
 
 	codes, err := s.modelDownloaderCodes(ctx, existing)
 	if err != nil {
@@ -109,6 +119,7 @@ func (s *InternalAppService) UpdateModelApp(
 		Codes:              downloaderCodesToModelSources(codes),
 		ResourceDefinition: req.Msg.GetResourceDefinition(),
 		CloudStorageMounts: req.Msg.GetCloudStorageMounts(),
+		ModelCacheSize:     modelCacheSize,
 	}
 	cloudStorageMounts, err := s.resolveModelAppCloudStorageMounts(ctx, input)
 	if err != nil {
@@ -132,6 +143,108 @@ func (s *InternalAppService) UpdateModelApp(
 	}
 	updated.Status = &flyteapp.Status{Ingress: s.k8s.PublicIngress(canonicalID)}
 	return connect.NewResponse(&flyteapp.UpdateModelAppResponse{App: updated}), nil
+}
+
+func (s *InternalAppService) modelCachePVCView(ctx context.Context, app *flyteapp.App) (*flyteapp.ModelCachePVC, error) {
+	name := modelCachePVCName(app)
+	if name == "" {
+		return nil, nil
+	}
+	appID := app.GetMetadata().GetId()
+	pvc, err := s.k8s.GetAppAuxPVC(ctx, appID, name)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to read model-cache PVC: %w", err))
+	}
+	storageClassName := pvcStorageClassName(pvc)
+	expandable, err := s.k8s.StorageClassAllowsExpansion(ctx, storageClassName)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to read StorageClass %s: %w", storageClassName, err))
+	}
+	requested := pvcStorageRequest(pvc)
+	capacity := pvcStorageCapacity(pvc)
+	if capacity.Sign() == 0 {
+		capacity = requested
+	}
+	return &flyteapp.ModelCachePVC{
+		Name:             pvc.Name,
+		StorageClassName: storageClassName,
+		RequestedSize:    requested.String(),
+		Capacity:         capacity.String(),
+		Expandable:       expandable,
+	}, nil
+}
+
+func (s *InternalAppService) validateModelCacheResize(ctx context.Context, app *flyteapp.App, requestedRaw string) (string, error) {
+	name := modelCachePVCName(app)
+	if name == "" {
+		return resolveModelCacheSize(requestedRaw)
+	}
+	appID := app.GetMetadata().GetId()
+	pvc, err := s.k8s.GetAppAuxPVC(ctx, appID, name)
+	if err != nil {
+		return "", connect.NewError(connect.CodeInternal, fmt.Errorf("failed to read model-cache PVC: %w", err))
+	}
+	currentRequest := pvcStorageRequest(pvc)
+	if strings.TrimSpace(requestedRaw) == "" {
+		if currentRequest.Sign() > 0 {
+			return currentRequest.String(), nil
+		}
+		requestedRaw = modelInputString(app, "model_cache_size")
+	}
+	requestedSize, err := resolveModelCacheSize(requestedRaw)
+	if err != nil {
+		return "", connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	requested := k8sresource.MustParse(requestedSize)
+	currentFloor := currentRequest
+	if capacity := pvcStorageCapacity(pvc); capacity.Cmp(currentFloor) > 0 {
+		currentFloor = capacity
+	}
+	if currentFloor.Sign() > 0 && requested.Cmp(currentFloor) < 0 {
+		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("model-cache PVC size cannot be decreased from %s to %s", currentFloor.String(), requested.String()))
+	}
+	if currentRequest.Sign() > 0 && requested.Cmp(currentRequest) > 0 {
+		storageClassName := pvcStorageClassName(pvc)
+		expandable, err := s.k8s.StorageClassAllowsExpansion(ctx, storageClassName)
+		if err != nil {
+			return "", connect.NewError(connect.CodeInternal, fmt.Errorf("failed to read StorageClass %s: %w", storageClassName, err))
+		}
+		if !expandable {
+			return "", connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("StorageClass %s does not support volume expansion", storageClassName))
+		}
+	}
+	return requested.String(), nil
+}
+
+func modelCachePVCName(app *flyteapp.App) string {
+	if name := modelInputString(app, "model_cache_pvc"); name != "" {
+		return name
+	}
+	if app.GetMetadata().GetId() == nil {
+		return ""
+	}
+	return auxResourceName(app.GetMetadata().GetId(), "model-cache")
+}
+
+func pvcStorageClassName(pvc *corev1.PersistentVolumeClaim) string {
+	if pvc == nil || pvc.Spec.StorageClassName == nil {
+		return ""
+	}
+	return strings.TrimSpace(*pvc.Spec.StorageClassName)
+}
+
+func pvcStorageRequest(pvc *corev1.PersistentVolumeClaim) k8sresource.Quantity {
+	if pvc == nil || pvc.Spec.Resources.Requests == nil {
+		return k8sresource.Quantity{}
+	}
+	return pvc.Spec.Resources.Requests[corev1.ResourceStorage]
+}
+
+func pvcStorageCapacity(pvc *corev1.PersistentVolumeClaim) k8sresource.Quantity {
+	if pvc == nil || pvc.Status.Capacity == nil {
+		return k8sresource.Quantity{}
+	}
+	return pvc.Status.Capacity[corev1.ResourceStorage]
 }
 
 func primaryModelContainer(app *flyteapp.App, podSpec *corev1.PodSpec) (*corev1.Container, error) {

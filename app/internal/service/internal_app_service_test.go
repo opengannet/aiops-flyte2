@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	corev1 "k8s.io/api/core/v1"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	appk8s "github.com/flyteorg/flyte/v2/app/internal/k8s"
 	aionedownloader "github.com/flyteorg/flyte/v2/flyteplugins/aione/downloader"
@@ -125,6 +126,19 @@ func (m *mockAppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identi
 	return args.Get(0).(*corev1.PersistentVolumeClaim), args.Error(1)
 }
 
+func (m *mockAppK8sClient) GetAppAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error) {
+	args := m.Called(ctx, appID, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*corev1.PersistentVolumeClaim), args.Error(1)
+}
+
+func (m *mockAppK8sClient) StorageClassAllowsExpansion(ctx context.Context, name string) (bool, error) {
+	args := m.Called(ctx, name)
+	return args.Bool(0), args.Error(1)
+}
+
 func (m *mockAppK8sClient) List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error) {
 	args := m.Called(ctx, project, domain, limit, token)
 	if args.Get(0) == nil {
@@ -177,6 +191,31 @@ func testAppID() *flyteapp.Identifier {
 }
 
 func quantityString(q k8sresource.Quantity) string { return q.String() }
+
+func modelCachePVC(name, storageClass, requested, capacity string) *corev1.PersistentVolumeClaim {
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: appk8s.AppNamespace},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			StorageClassName: &storageClass,
+			Resources: corev1.VolumeResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse(requested)},
+			},
+		},
+	}
+	if capacity != "" {
+		pvc.Status.Capacity = corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse(capacity)}
+	}
+	return pvc
+}
+
+func expectLiveModelCachePVC(k8s *mockAppK8sClient, app *flyteapp.App, storageClass, requested, capacity string, expandable bool) {
+	name := modelInputString(app, "model_cache_pvc")
+	if name == "" {
+		name = auxResourceName(app.GetMetadata().GetId(), "model-cache")
+	}
+	k8s.On("GetAppAuxPVC", mock.Anything, app.Metadata.Id, name).Return(modelCachePVC(name, storageClass, requested, capacity), nil)
+	k8s.On("StorageClassAllowsExpansion", mock.Anything, storageClass).Return(expandable, nil)
+}
 
 func testApp() *flyteapp.App {
 	return &flyteapp.App{
@@ -260,6 +299,7 @@ func TestGetModelAppConfigUsesLiveCustomArgsAndRedactsRepositoryToken(t *testing
 	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
 	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&runtimePod, nil)
 	k8s.On("GetAuxSecret", mock.Anything, app.Metadata.Id, "qwen-proj-dev-model-downloader").Return(resources.Secrets[0], nil)
+	expectLiveModelCachePVC(k8s, app, "bj1-ebs", "80Gi", "80Gi", true)
 	svc := NewInternalAppService(k8s)
 
 	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
@@ -279,6 +319,11 @@ func TestGetModelAppConfigUsesLiveCustomArgsAndRedactsRepositoryToken(t *testing
 	assert.Equal(t, "4", model.GetResourceDefinition().GetCpu())
 	assert.Equal(t, "16Gi", model.GetResourceDefinition().GetMemory())
 	assert.Equal(t, uint32(1), model.GetResourceDefinition().GetGpu())
+	assert.Equal(t, "qwen-proj-dev-model-cache", model.GetModelCachePvc().GetName())
+	assert.Equal(t, "bj1-ebs", model.GetModelCachePvc().GetStorageClassName())
+	assert.Equal(t, "80Gi", model.GetModelCachePvc().GetRequestedSize())
+	assert.Equal(t, "80Gi", model.GetModelCachePvc().GetCapacity())
+	assert.True(t, model.GetModelCachePvc().GetExpandable())
 	k8s.AssertExpectations(t)
 }
 
@@ -314,6 +359,7 @@ func TestGetModelAppConfigSanitizesCredentialsFromHistoricalRepositoryURL(t *tes
 	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
 	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&runtimePod, nil)
 	k8s.On("GetAuxSecret", mock.Anything, app.Metadata.Id, "qwen-proj-dev-model-downloader").Return(resources.Secrets[0], nil)
+	expectLiveModelCachePVC(k8s, app, "bj1-ebs", "80Gi", "80Gi", true)
 	svc := NewInternalAppService(k8s)
 
 	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
@@ -363,6 +409,7 @@ func TestGetModelAppConfigRestoresCustomGPUKeyWhenGPUIsZero(t *testing.T) {
 	k8s := &mockAppK8sClient{}
 	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
 	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&podSpec, nil)
+	expectLiveModelCachePVC(k8s, app, "bj1-ebs", "80Gi", "80Gi", true)
 	svc := NewInternalAppService(k8s)
 
 	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
@@ -397,6 +444,8 @@ func TestUpdateModelAppPreservesIdentitySourceAndPVCWhileRedeployingRuntimeConfi
 	k8s := &mockAppK8sClient{}
 	k8s.On("GetApp", mock.Anything, existing.Metadata.Id).Return(existing, nil)
 	k8s.On("GetAuxSecret", mock.Anything, existing.Metadata.Id, "qwen-proj-dev-model-downloader").Return(existingResources.Secrets[0], nil)
+	k8s.On("GetAppAuxPVC", mock.Anything, existing.Metadata.Id, "qwen-proj-dev-model-cache").Return(modelCachePVC("qwen-proj-dev-model-cache", "bj1-ebs", "80Gi", "80Gi"), nil)
+	k8s.On("StorageClassAllowsExpansion", mock.Anything, "bj1-ebs").Return(true, nil).Maybe()
 	ingress := &flyteapp.Ingress{PublicUrl: "https://qwen-proj-dev.ops.fzyun.io"}
 	k8s.On("PublicIngress", existing.Metadata.Id).Return(ingress)
 	var deployedApp *flyteapp.App
@@ -422,6 +471,7 @@ func TestUpdateModelAppPreservesIdentitySourceAndPVCWhileRedeployingRuntimeConfi
 	assert.Equal(t, ingress.PublicUrl, response.Msg.App.Status.Ingress.PublicUrl)
 	assert.Equal(t, "qwen", modelInputString(deployedApp, "code"))
 	assert.Equal(t, existingResources.PersistentVolumeClaims[0].Name, modelInputString(deployedApp, "model_cache_pvc"))
+	assert.Equal(t, "80Gi", modelInputString(deployedApp, "model_cache_size"))
 
 	var podSpec corev1.PodSpec
 	require.NoError(t, utils.UnmarshalStructToObj(deployedApp.Spec.GetPod().GetPodSpec(), &podSpec))
@@ -473,6 +523,7 @@ func TestUpdateModelAppRejectsInvalidResourceQuantityWithoutPanicking(t *testing
 	require.NoError(t, err)
 	k8s := &mockAppK8sClient{}
 	k8s.On("GetApp", mock.Anything, existing.Metadata.Id).Return(existing, nil)
+	k8s.On("GetAppAuxPVC", mock.Anything, existing.Metadata.Id, "qwen-proj-dev-model-cache").Return(modelCachePVC("qwen-proj-dev-model-cache", "bj1-ebs", "80Gi", "80Gi"), nil)
 	svc := NewInternalAppService(k8s)
 
 	var updateErr error
@@ -642,6 +693,10 @@ func TestCreateModelApp_BuildsSanitizedVLLMPod(t *testing.T) {
 
 	require.Len(t, aux.Secrets, 1)
 	require.Len(t, aux.PersistentVolumeClaims, 1)
+	assert.Equal(t, "80Gi", quantityString(aux.PersistentVolumeClaims[0].Spec.Resources.Requests[corev1.ResourceStorage]))
+	require.NotNil(t, aux.PersistentVolumeClaims[0].Spec.StorageClassName)
+	assert.Equal(t, "bj1-ebs", *aux.PersistentVolumeClaims[0].Spec.StorageClassName)
+	assert.Equal(t, "80Gi", modelInputString(deployedApp, "model_cache_size"))
 	secretData := aux.Secrets[0].Data[aionedownloader.SecretKey]
 	rawSecret, err := base64.StdEncoding.DecodeString(string(secretData))
 	require.NoError(t, err)
@@ -672,6 +727,120 @@ func TestCreateModelApp_BuildsSanitizedVLLMPod(t *testing.T) {
 	assert.Equal(t, aux.PersistentVolumeClaims[0].Name, podSpec.Volumes[0].PersistentVolumeClaim.ClaimName)
 	assert.Equal(t, "/models", main.VolumeMounts[0].MountPath)
 	assert.Equal(t, "/root/.cache/huggingface", main.VolumeMounts[1].MountPath)
+	k8s.AssertExpectations(t)
+}
+
+func TestUpdateModelAppGrowsModelCachePVC(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+		Codes: []*flyteapp.ModelCodeSource{{Id: "https://gitea.example.com/aione/qwen.git"}},
+	}
+	existing, resources, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	require.Len(t, resources.Secrets, 1)
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, existing.Metadata.Id).Return(existing, nil)
+	k8s.On("GetAuxSecret", mock.Anything, existing.Metadata.Id, "qwen-proj-dev-model-downloader").Return(resources.Secrets[0], nil)
+	k8s.On("GetAppAuxPVC", mock.Anything, existing.Metadata.Id, "qwen-proj-dev-model-cache").Return(modelCachePVC("qwen-proj-dev-model-cache", "bj1-ebs", "80Gi", "80Gi"), nil)
+	k8s.On("StorageClassAllowsExpansion", mock.Anything, "bj1-ebs").Return(true, nil)
+	k8s.On("PublicIngress", existing.Metadata.Id).Return((*flyteapp.Ingress)(nil))
+	var deployedApp *flyteapp.App
+	var deployedResources appk8s.AppAuxResources
+	k8s.On("RedeployWithResources", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		deployedApp = args.Get(1).(*flyteapp.App)
+		deployedResources = args.Get(2).(appk8s.AppAuxResources)
+	}).Return(nil)
+	svc := NewInternalAppService(k8s)
+
+	_, err = svc.UpdateModelApp(context.Background(), connect.NewRequest(&flyteapp.UpdateModelAppRequest{
+		AppId:              existing.Metadata.Id,
+		Name:               "Qwen",
+		Image:              "vllm",
+		ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "4", Memory: "16Gi"},
+		ModelCacheSize:     "120Gi",
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, deployedApp)
+	require.Len(t, deployedResources.PersistentVolumeClaims, 1)
+	assert.Equal(t, "120Gi", quantityString(deployedResources.PersistentVolumeClaims[0].Spec.Resources.Requests[corev1.ResourceStorage]))
+	assert.Equal(t, "120Gi", modelInputString(deployedApp, "model_cache_size"))
+	k8s.AssertExpectations(t)
+}
+
+func TestUpdateModelAppRejectsModelCacheShrink(t *testing.T) {
+	input := &flyteapp.ModelAppInput{Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen", ModelCacheSize: "120Gi"}
+	existing, _, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, existing.Metadata.Id).Return(existing, nil)
+	k8s.On("GetAppAuxPVC", mock.Anything, existing.Metadata.Id, "qwen-proj-dev-model-cache").Return(modelCachePVC("qwen-proj-dev-model-cache", "bj1-ebs", "120Gi", "120Gi"), nil)
+	svc := NewInternalAppService(k8s)
+
+	_, err = svc.UpdateModelApp(context.Background(), connect.NewRequest(&flyteapp.UpdateModelAppRequest{
+		AppId:              existing.Metadata.Id,
+		Name:               "Qwen",
+		Image:              "vllm",
+		ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "4", Memory: "16Gi"},
+		ModelCacheSize:     "80Gi",
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	k8s.AssertNotCalled(t, "RedeployWithResources", mock.Anything, mock.Anything, mock.Anything)
+	k8s.AssertExpectations(t)
+}
+
+func TestUpdateModelAppRejectsNonExpandableModelCachePVC(t *testing.T) {
+	input := &flyteapp.ModelAppInput{Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen"}
+	existing, _, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, existing.Metadata.Id).Return(existing, nil)
+	k8s.On("GetAppAuxPVC", mock.Anything, existing.Metadata.Id, "qwen-proj-dev-model-cache").Return(modelCachePVC("qwen-proj-dev-model-cache", "local-path", "80Gi", "80Gi"), nil)
+	k8s.On("StorageClassAllowsExpansion", mock.Anything, "local-path").Return(false, nil)
+	svc := NewInternalAppService(k8s)
+
+	_, err = svc.UpdateModelApp(context.Background(), connect.NewRequest(&flyteapp.UpdateModelAppRequest{
+		AppId:              existing.Metadata.Id,
+		Name:               "Qwen",
+		Image:              "vllm",
+		ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "4", Memory: "16Gi"},
+		ModelCacheSize:     "120Gi",
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	assert.ErrorContains(t, err, "does not support volume expansion")
+	k8s.AssertNotCalled(t, "RedeployWithResources", mock.Anything, mock.Anything, mock.Anything)
+	k8s.AssertExpectations(t)
+}
+
+func TestCreateModelAppUsesRequestedModelCacheSize(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	svc := NewInternalAppService(k8s)
+
+	var deployedApp *flyteapp.App
+	var aux appk8s.AppAuxResources
+	k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		deployedApp = args.Get(1).(*flyteapp.App)
+		aux = args.Get(2).(appk8s.AppAuxResources)
+	}).Return(nil)
+	k8s.On("PublicIngress", mock.Anything).Return((*flyteapp.Ingress)(nil))
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Org: "flyte", Project: "proj", Domain: "dev", Id: "qwen-local", Code: "qwen-local",
+			ModelCacheSize: "120Gi",
+		},
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, deployedApp)
+	require.Len(t, aux.PersistentVolumeClaims, 1)
+	assert.Equal(t, "120Gi", quantityString(aux.PersistentVolumeClaims[0].Spec.Resources.Requests[corev1.ResourceStorage]))
+	require.NotNil(t, aux.PersistentVolumeClaims[0].Spec.StorageClassName)
+	assert.Equal(t, "bj1-ebs", *aux.PersistentVolumeClaims[0].Spec.StorageClassName)
+	assert.Equal(t, "120Gi", modelInputString(deployedApp, "model_cache_size"))
 	k8s.AssertExpectations(t)
 }
 
@@ -759,6 +928,7 @@ func TestGetModelAppConfigRestoresOriginalCloudStorageIDFromSpec(t *testing.T) {
 	k8s := &mockAppK8sClient{}
 	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
 	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&podSpec, nil)
+	expectLiveModelCachePVC(k8s, app, "bj1-ebs", "80Gi", "80Gi", true)
 	svc := NewInternalAppService(k8s)
 
 	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
@@ -791,6 +961,7 @@ func TestGetModelAppConfigRestoresHistoricalCloudStorageIDFromLivePVCLabel(t *te
 	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
 	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&podSpec, nil)
 	k8s.On("GetAuxPVC", mock.Anything, app.Metadata.Id, cloudPVC.Name).Return(cloudPVC, nil)
+	expectLiveModelCachePVC(k8s, app, "bj1-ebs", "80Gi", "80Gi", true)
 	svc := NewInternalAppService(k8s)
 
 	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))

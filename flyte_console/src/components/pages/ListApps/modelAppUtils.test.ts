@@ -49,6 +49,7 @@ describe("model app helpers", () => {
         memory: " 16Gi ",
         gpu: "2",
         gpuKey: "example.com/gpu",
+        modelCacheSize: "120",
       },
     });
 
@@ -69,6 +70,8 @@ describe("model app helpers", () => {
       gpu: 2,
       gpuKey: "example.com/gpu",
     });
+    expect(request.model?.cloudStorageMounts).toEqual([]);
+    expect(request.model?.modelCacheSize).toBe("120Gi");
     expect(request.model?.cloudStorageMounts).toEqual([]);
   });
 
@@ -231,6 +234,13 @@ describe("model app helpers", () => {
         gpu: 1,
         gpuKey: "nvidia.com/gpu",
       },
+      modelCachePvc: {
+        name: "qwen25-15b-aione-development-model-cache",
+        storageClassName: "bj1-ebs",
+        requestedSize: "80Gi",
+        capacity: "80Gi",
+        expandable: true,
+      },
       cloudStorageMounts: [
         { cloudStorageId: "Models@Prod", mountPath: "/mnt/models" },
       ],
@@ -255,7 +265,21 @@ describe("model app helpers", () => {
       memory: "16Gi",
       gpu: "1",
       gpuKey: "nvidia.com/gpu",
+      modelCacheSize: "80",
     });
+  });
+
+  it.each([
+    ["81920Mi", "80"],
+    ["1Ti", "1024"],
+  ])("hydrates model cache quantity %s as Gi", (requestedSize, expected) => {
+    const config = create(ModelAppConfigSchema, {
+      modelCachePvc: {
+        requestedSize,
+      },
+    });
+
+    expect(modelAppConfigToFormValues(config).modelCacheSize).toBe(expected);
   });
 
   it("builds an update request with editable fields only", () => {
@@ -273,6 +297,7 @@ describe("model app helpers", () => {
         name: "Updated Qwen",
         image: "registry.example/vllm:latest",
         param: "--max-num-seqs\n16",
+        modelCacheSize: "120",
       },
     });
 
@@ -288,6 +313,7 @@ describe("model app helpers", () => {
         gpuKey: "nvidia.com/gpu",
       },
       cloudStorageMounts: [],
+      modelCacheSize: "120Gi",
       reason: "console model app edit",
     });
     expect(request).not.toHaveProperty("code");
@@ -296,6 +322,33 @@ describe("model app helpers", () => {
 
   it("validates model app fields without cloud storage mount state", () => {
     expect(validateModelAppFormValues(defaultModelAppFormValues)).toBeNull();
+  });
+
+  it("validates model cache PVC size as a positive Gi integer and prevents shrink", () => {
+    expect(
+      validateModelAppFormValues({
+        ...defaultModelAppFormValues,
+        modelCacheSize: "",
+      }),
+    ).toBe("模型缓存 PVC 容量必须是正整数");
+    expect(
+      validateModelAppFormValues(
+        {
+          ...defaultModelAppFormValues,
+          modelCacheSize: "79",
+        },
+        { currentModelCacheSize: "80Gi", modelCacheExpandable: true },
+      ),
+    ).toBe("模型缓存 PVC 容量只能增大，不能变小");
+    expect(
+      validateModelAppFormValues(
+        {
+          ...defaultModelAppFormValues,
+          modelCacheSize: "120",
+        },
+        { currentModelCacheSize: "80Gi", modelCacheExpandable: false },
+      ),
+    ).toBe("当前 PVC 不支持在线扩容，需要迁移或重建");
   });
 
   it.each(["", " ", "1.5", "1gpu", "NaN", "-1"])(

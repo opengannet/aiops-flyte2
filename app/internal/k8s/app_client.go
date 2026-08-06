@@ -15,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -69,6 +70,8 @@ type AppK8sClientInterface interface {
 	GetRuntimePodSpec(ctx context.Context, appID *flyteapp.Identifier) (*corev1.PodSpec, error)
 	GetAuxSecret(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.Secret, error)
 	GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error)
+	GetAppAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error)
+	StorageClassAllowsExpansion(ctx context.Context, name string) (bool, error)
 	List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error)
 	Delete(ctx context.Context, appID *flyteapp.Identifier) error
 	GetReplicas(ctx context.Context, appID *flyteapp.Identifier) ([]*flyteapp.Replica, error)
@@ -444,6 +447,21 @@ func (c *AppK8sClient) upsertPVC(ctx context.Context, appID *flyteapp.Identifier
 		return err
 	}
 	mergeObjectMeta(existing, desired)
+	if desired.Spec.Resources.Requests != nil {
+		desiredStorage, ok := desired.Spec.Resources.Requests[corev1.ResourceStorage]
+		if ok {
+			if existing.Spec.Resources.Requests == nil {
+				existing.Spec.Resources.Requests = corev1.ResourceList{}
+			}
+			existingStorage, exists := existing.Spec.Resources.Requests[corev1.ResourceStorage]
+			if exists && desiredStorage.Cmp(existingStorage) < 0 {
+				return fmt.Errorf("cannot shrink PVC %s storage request from %s to %s", desired.Name, existingStorage.String(), desiredStorage.String())
+			}
+			if !exists || desiredStorage.Cmp(existingStorage) > 0 {
+				existing.Spec.Resources.Requests[corev1.ResourceStorage] = desiredStorage
+			}
+		}
+	}
 	return c.k8sClient.Update(ctx, existing)
 }
 
@@ -662,6 +680,30 @@ func (c *AppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier
 		return nil, fmt.Errorf("PersistentVolumeClaim %s is not a cloud storage volume", name)
 	}
 	return pvc, nil
+}
+
+func (c *AppK8sClient) GetAppAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error) {
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, pvc); err != nil {
+		return nil, err
+	}
+	for key, value := range appAuxLabels(appID) {
+		if pvc.Labels[key] != value {
+			return nil, fmt.Errorf("PersistentVolumeClaim %s is not owned by app %s", name, appID.GetName())
+		}
+	}
+	return pvc, nil
+}
+
+func (c *AppK8sClient) StorageClassAllowsExpansion(ctx context.Context, name string) (bool, error) {
+	if strings.TrimSpace(name) == "" {
+		return false, nil
+	}
+	storageClass := &storagev1.StorageClass{}
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Name: name}, storageClass); err != nil {
+		return false, err
+	}
+	return storageClass.AllowVolumeExpansion != nil && *storageClass.AllowVolumeExpansion, nil
 }
 
 func (c *AppK8sClient) List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error) {

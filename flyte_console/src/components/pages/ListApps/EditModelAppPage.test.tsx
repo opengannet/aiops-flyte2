@@ -82,6 +82,13 @@ function modelConfig(
     cloudStorageMounts: [
       { cloudStorageId: "storage-a", mountPath: "/mnt/storage-a" },
     ],
+    modelCachePvc: {
+      name: "qwen25-15b-aione-development-model-cache",
+      storageClassName: "bj1-ebs",
+      requestedSize: "80Gi",
+      capacity: "80Gi",
+      expandable: true,
+    },
   });
 }
 
@@ -127,6 +134,12 @@ describe("EditModelAppPage", () => {
     expect(screen.getByLabelText("GPU")).toHaveAttribute("type", "number");
     expect(screen.getByLabelText("GPU")).toHaveAttribute("min", "0");
     expect(screen.getByLabelText("GPU")).toHaveAttribute("step", "1");
+    expect(screen.getByLabelText("模型缓存 PVC 容量 (Gi)")).toHaveValue(80);
+    expect(
+      screen.getByText("PVC: qwen25-15b-aione-development-model-cache"),
+    ).toBeVisible();
+    expect(screen.getByText("StorageClass: bj1-ebs")).toBeVisible();
+    expect(screen.getByText(/80Gi/)).toBeVisible();
     const param = screen.getByLabelText("启动参数") as HTMLTextAreaElement;
     expect(param.value).toContain("--max-num-seqs\n16");
     expect(param.value).toContain("--max-model-len\n8192");
@@ -141,6 +154,9 @@ describe("EditModelAppPage", () => {
     const name = await screen.findByLabelText("应用名称");
     await user.clear(name);
     await user.type(name, "Qwen updated");
+    const modelCacheSize = screen.getByLabelText("模型缓存 PVC 容量 (Gi)");
+    await user.clear(modelCacheSize);
+    await user.type(modelCacheSize, "120");
     await user.click(screen.getByRole("button", { name: "保存并重启" }));
 
     await waitFor(() =>
@@ -159,6 +175,7 @@ describe("EditModelAppPage", () => {
         gpu: 1,
         gpuKey: "nvidia.com/gpu",
       },
+      modelCacheSize: "120Gi",
       cloudStorageMounts: [],
     });
     expect(request).not.toHaveProperty("code");
@@ -169,6 +186,43 @@ describe("EditModelAppPage", () => {
     expect(mocks.push).toHaveBeenCalledWith(
       "/domain/development/project/aione/apps/qwen25-15b",
     );
+  });
+
+  it("blocks shrinking the model-cache PVC before calling the API", async () => {
+    const user = userEvent.setup();
+    render(<EditModelAppPage />);
+
+    const modelCacheSize =
+      await screen.findByLabelText("模型缓存 PVC 容量 (Gi)");
+    await user.clear(modelCacheSize);
+    await user.type(modelCacheSize, "79");
+    await user.click(screen.getByRole("button", { name: /保存/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "模型缓存 PVC 容量只能增大，不能变小",
+    );
+    expect(mocks.appClient.updateModelApp).not.toHaveBeenCalled();
+  });
+
+  it("disables model-cache PVC size edits when the StorageClass is not expandable", async () => {
+    const config = modelConfig();
+    config.modelCachePvc = {
+      name: "qwen25-15b-aione-development-model-cache",
+      storageClassName: "local-path",
+      requestedSize: "80Gi",
+      capacity: "80Gi",
+      expandable: false,
+    };
+    mocks.appClient.getModelAppConfig.mockResolvedValue({ model: config });
+
+    render(<EditModelAppPage />);
+
+    expect(
+      await screen.findByLabelText("模型缓存 PVC 容量 (Gi)"),
+    ).toBeDisabled();
+    expect(
+      screen.getByText("当前 PVC 不支持在线扩容，需要迁移或重建"),
+    ).toBeVisible();
   });
 
   it("shows a blocking error when config loading fails", async () => {
