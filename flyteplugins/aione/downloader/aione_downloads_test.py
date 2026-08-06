@@ -30,6 +30,28 @@ def zip_bytes() -> bytes:
 
 
 class DownloaderGitTests(unittest.TestCase):
+    def test_non_empty_target_reuses_existing_contents_before_downloaders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target_dir = os.path.join(tmpdir, "model")
+            os.makedirs(target_dir)
+            with open(os.path.join(target_dir, "config.json"), "w", encoding="utf-8") as output:
+                output.write("{}")
+
+            with mock.patch.object(downloader.requests, "get") as get_mock:
+                with mock.patch.object(downloader.subprocess, "run") as run_mock:
+                    downloader._clone_git(
+                        downloader.GitData(
+                            repo_url="https://gitea.example.com/team/repo.git",
+                            target_dir=target_dir,
+                            access_token="secret-token",
+                            branch="main",
+                        )
+                    )
+
+            get_mock.assert_not_called()
+            run_mock.assert_not_called()
+            self.assertTrue(os.path.exists(os.path.join(target_dir, "config.json")))
+
     def test_gitlab_archive_download(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             target_dir = os.path.join(tmpdir, "model")

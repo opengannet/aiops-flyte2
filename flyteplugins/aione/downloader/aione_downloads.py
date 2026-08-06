@@ -98,6 +98,11 @@ def _clone_git(data: GitData) -> None:
     if not data.target_dir:
         raise ValueError("target directory is required")
 
+    if os.path.exists(data.target_dir) and os.listdir(data.target_dir):
+        flush_print(f"Target directory {data.target_dir} is not empty; reusing existing contents")
+        _make_tree_readable(data.target_dir)
+        return
+
     if _download_gitlab_archive(data):
         return
     if _download_gitea_archive(data):
@@ -142,11 +147,6 @@ def _download_archive(source_name: str, url: str, headers: dict[str, str], targe
 
 
 def _git_clone_fallback(data: GitData) -> None:
-    if os.path.exists(data.target_dir) and os.listdir(data.target_dir):
-        flush_print(f"Target directory {data.target_dir} is not empty; reusing existing contents")
-        _make_tree_readable(data.target_dir)
-        return
-
     parent = os.path.dirname(data.target_dir)
     if parent:
         os.makedirs(parent, exist_ok=True)
