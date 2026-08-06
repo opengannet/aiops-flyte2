@@ -61,3 +61,5 @@ node_modules
 
 /.playwright-cli/
 /output/playwright/
+output/
+/.playwright-mcp/
