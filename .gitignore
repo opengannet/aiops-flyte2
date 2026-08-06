@@ -49,6 +49,7 @@ empty-config.yaml
 node_modules
 .claude/
 .superpowers/
+.worktrees/
 
 # Extracted Flyte console project artifacts
 /flyte_console/node_modules/
