@@ -2,7 +2,6 @@
  * © Copyright Union Systems Inc 2026. All rights reserved.
  */
 
-import { LinkArrow } from '@/components/Link'
 import { createColumnHelper } from '@tanstack/react-table'
 import { AppStatusBadge } from '../components/AppStatusBadge'
 import { ListAppsOverflowActions } from './ListAppsOverflowActions'
@@ -13,7 +12,7 @@ const helper = createColumnHelper<AppTableItem>()
 export const baseColumns = [
   helper.accessor('status', {
     cell: (info) => <AppStatusBadge status={info.getValue()} />,
-    header: 'Status',
+    header: '状态',
     minSize: 140,
     size: 140,
   }),
@@ -21,30 +20,21 @@ export const baseColumns = [
   helper.accessor('replicas', {
     cell: (info) => (
       <span className="truncate overflow-hidden text-sm whitespace-nowrap dark:text-(--system-gray-7)">
-        {info.getValue().min} of {info.getValue().max}
+        {info.getValue().min} / {info.getValue().max}
       </span>
     ),
-    header: 'Replicas',
+    header: '副本数',
     minSize: 85,
     size: 85,
   }),
 
   helper.accessor('name', {
     cell: (info) => (
-      <div className="truncate overflow-hidden whitespace-nowrap">
-        <div className="truncate overflow-hidden text-sm leading-[16px] font-normal whitespace-nowrap">
-          {info.getValue().displayText}
-        </div>
-        <div className="flex items-center truncate overflow-hidden text-xs leading-[16px] text-nowrap dark:text-(--system-gray-5)">
-          Endpoint:{' '}
-          <LinkArrow
-            displayText={info.getValue().endpoint}
-            href={info.getValue().endpoint}
-          />
-        </div>
-      </div>
+      <span className="truncate overflow-hidden text-sm leading-[16px] font-normal whitespace-nowrap">
+        {info.getValue().displayText}
+      </span>
     ),
-    header: 'Name',
+    header: '名称',
     minSize: 205,
   }),
   helper.accessor('type', {
@@ -55,7 +45,7 @@ export const baseColumns = [
     ),
     minSize: 150,
     size: 150,
-    header: 'Type',
+    header: '类型',
   }),
   helper.accessor('lastDeployed', {
     cell: (info) => (
@@ -63,7 +53,7 @@ export const baseColumns = [
         {info.getValue().relativeTime}
       </div>
     ),
-    header: () => <span className="text-nowrap">Last Deployed</span>,
+    header: () => <span className="text-nowrap">最近部署</span>,
     minSize: 130,
     size: 130,
   }),
