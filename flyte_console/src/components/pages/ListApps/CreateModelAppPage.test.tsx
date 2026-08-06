@@ -123,6 +123,17 @@ describe("CreateModelAppPage", () => {
     ]);
   });
 
+  it("keeps focus while typing a complete model repository URL", async () => {
+    const user = userEvent.setup();
+    render(<CreateModelAppPage />);
+
+    const repositoryUrl = screen.getByLabelText("仓库地址");
+    const value = "http://gitea.ops.fzyun.io/aione/Qwen2.5-1.5B-Instruct.git";
+    await user.type(repositoryUrl, value);
+
+    expect(repositoryUrl).toHaveValue(value);
+  });
+
   it("automatically selects cloud storage created from the quick form", async () => {
     const user = userEvent.setup();
     render(<CreateModelAppPage />);

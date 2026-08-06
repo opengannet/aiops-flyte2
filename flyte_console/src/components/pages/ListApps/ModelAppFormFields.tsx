@@ -136,7 +136,7 @@ export function ModelAppFormFields({
             {sources.map((source, index) => (
               <div
                 className="grid gap-4 border border-(--system-gray-4) p-3 lg:grid-cols-2"
-                key={`${source.id}-${source.branch}-${source.path}-${index}`}
+                key={index}
               >
                 {sources.length > 1 && (
                   <h3 className="text-sm font-medium lg:col-span-2">
