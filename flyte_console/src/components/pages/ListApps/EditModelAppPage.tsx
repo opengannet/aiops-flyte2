@@ -8,27 +8,19 @@ import { create } from "@bufbuild/protobuf";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowPathIcon } from "@heroicons/react/20/solid";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 
 import { Button } from "@/components/Button";
 import { Header } from "@/components/Header";
 import { NavPanelLayout } from "@/components/NavPanel/NavPanelLayout";
-import type { CloudStorage } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_definition_pb";
-import {
-  CloudStorageService,
-  ListCloudStoragesRequestSchema,
-} from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_service_pb";
 import { IdentifierSchema } from "@/gen/flyteidl2/app/app_definition_pb";
 import { GetModelAppConfigRequestSchema } from "@/gen/flyteidl2/app/app_payload_pb";
 import type { ModelAppConfig } from "@/gen/flyteidl2/app/app_payload_pb";
 import { AppService } from "@/gen/flyteidl2/app/app_service_pb";
-import { ProjectIdentifierSchema } from "@/gen/flyteidl2/common/identifier_pb";
-import { ListRequestSchema } from "@/gen/flyteidl2/common/list_pb";
 import { useConnectRpcClient } from "@/hooks/useConnectRpc";
 import { useOrg } from "@/hooks/useOrg";
 
-import { ModelAppCloudStorageList } from "./ModelAppCloudStorageList";
 import { ModelAppFormFields } from "./ModelAppFormFields";
 import {
   buildUpdateModelAppRequest,
@@ -49,7 +41,6 @@ export function EditModelAppPage() {
   const router = useRouter();
   const org = useOrg();
   const client = useConnectRpcClient(AppService);
-  const cloudStorageClient = useConnectRpcClient(CloudStorageService);
   const queryClient = useQueryClient();
   const [config, setConfig] = useState<ModelAppConfig>();
   const [values, setValues] = useState<ModelAppFormValues>(
@@ -59,21 +50,7 @@ export function EditModelAppPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [cloudStorages, setCloudStorages] = useState<CloudStorage[]>([]);
-  const [isLoadingCloudStorages, setIsLoadingCloudStorages] = useState(false);
-  const [cloudStorageError, setCloudStorageError] = useState("");
 
-  const projectId = useMemo(
-    () =>
-      org && params.domain && params.project
-        ? create(ProjectIdentifierSchema, {
-            organization: org,
-            domain: params.domain,
-            name: params.project,
-          })
-        : undefined,
-    [org, params.domain, params.project],
-  );
   const detailHref = `/v2/domain/${params.domain}/project/${params.project}/apps/${params.appId}`;
   const configMatchesRoute = Boolean(
     config?.appId &&
@@ -141,44 +118,6 @@ export function EditModelAppPage() {
     };
   }, [client, org, params.appId, params.domain, params.project]);
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!projectId) return;
-    const loadCloudStorages = async () => {
-      setIsLoadingCloudStorages(true);
-      setCloudStorageError("");
-      try {
-        const allCloudStorages: CloudStorage[] = [];
-        const seenTokens = new Set<string>();
-        let token = "";
-        while (!cancelled) {
-          const response = await cloudStorageClient.listCloudStorages(
-            create(ListCloudStoragesRequestSchema, {
-              project: projectId,
-              request: create(ListRequestSchema, { limit: 50, token }),
-            }),
-          );
-          if (cancelled) break;
-          allCloudStorages.push(...(response.cloudStorages ?? []));
-          const nextToken = response.token;
-          if (!nextToken || seenTokens.has(nextToken)) break;
-          seenTokens.add(nextToken);
-          token = nextToken;
-        }
-        if (!cancelled) setCloudStorages(allCloudStorages);
-      } catch (loadError) {
-        console.error("Error loading cloud storages", loadError);
-        if (!cancelled) setCloudStorageError("加载云存储失败");
-      } finally {
-        if (!cancelled) setIsLoadingCloudStorages(false);
-      }
-    };
-    void loadCloudStorages();
-    return () => {
-      cancelled = true;
-    };
-  }, [cloudStorageClient, projectId]);
-
   const setField = (field: keyof ModelAppFormValues, value: string) => {
     setValues((current) => ({ ...current, [field]: value }));
   };
@@ -190,27 +129,6 @@ export function EditModelAppPage() {
       ...current,
       codes: current.codes.map((source, index) =>
         index === 0 ? { ...source, [field]: value } : source,
-      ),
-    }));
-  };
-  const setCloudStorageSelected = (storageId: string, selected: boolean) => {
-    setValues((current) => ({
-      ...current,
-      cloudStorageMounts: selected
-        ? [
-            ...current.cloudStorageMounts,
-            { cloudStorageId: storageId, mountPath: `/mnt/${storageId}` },
-          ]
-        : current.cloudStorageMounts.filter(
-            (mount) => mount.cloudStorageId !== storageId,
-          ),
-    }));
-  };
-  const setCloudStorageMountPath = (storageId: string, mountPath: string) => {
-    setValues((current) => ({
-      ...current,
-      cloudStorageMounts: current.cloudStorageMounts.map((mount) =>
-        mount.cloudStorageId === storageId ? { ...mount, mountPath } : mount,
       ),
     }));
   };
@@ -245,9 +163,7 @@ export function EditModelAppPage() {
       );
     } catch (updateError) {
       const message =
-        updateError instanceof Error
-          ? updateError.message
-          : String(updateError);
+        updateError instanceof Error ? updateError.message : String(updateError);
       setError(`保存模型应用失败：${message}`);
     } finally {
       setIsSubmitting(false);
@@ -276,11 +192,7 @@ export function EditModelAppPage() {
                 </Button>
                 <Button
                   color="union"
-                  disabled={
-                    isLoading ||
-                    isSubmitting ||
-                    !configMatchesRoute
-                  }
+                  disabled={isLoading || isSubmitting || !configMatchesRoute}
                   type="submit"
                 >
                   <ArrowPathIcon data-slot="icon" />
@@ -312,18 +224,6 @@ export function EditModelAppPage() {
               readOnlySource
               tokenConfigured={tokenConfigured}
             />
-
-            <section className="flex flex-col gap-4 pb-8">
-              <h2 className="text-sm font-bold">云存储</h2>
-              <ModelAppCloudStorageList
-                cloudStorages={cloudStorages}
-                error={cloudStorageError}
-                isLoading={isLoadingCloudStorages}
-                mounts={values.cloudStorageMounts}
-                onSelectedChange={setCloudStorageSelected}
-                onMountPathChange={setCloudStorageMountPath}
-              />
-            </section>
           </form>
         </div>
       </NavPanelLayout>

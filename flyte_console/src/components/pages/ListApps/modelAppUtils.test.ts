@@ -49,16 +49,6 @@ describe("model app helpers", () => {
         memory: " 16Gi ",
         gpu: "2",
         gpuKey: "example.com/gpu",
-        cloudStorageMounts: [
-          {
-            cloudStorageId: " storage-a ",
-            mountPath: " /mnt/models ",
-          },
-          {
-            cloudStorageId: "storage-b",
-            mountPath: "/mnt/checkpoints",
-          },
-        ],
       },
     });
 
@@ -79,16 +69,7 @@ describe("model app helpers", () => {
       gpu: 2,
       gpuKey: "example.com/gpu",
     });
-    expect(request.model?.cloudStorageMounts).toEqual([
-      expect.objectContaining({
-        cloudStorageId: "storage-a",
-        mountPath: "/mnt/models",
-      }),
-      expect.objectContaining({
-        cloudStorageId: "storage-b",
-        mountPath: "/mnt/checkpoints",
-      }),
-    ]);
+    expect(request.model?.cloudStorageMounts).toEqual([]);
   });
 
   it("splits params only on newlines and keeps image aliases stable", () => {
@@ -223,7 +204,7 @@ describe("model app helpers", () => {
     ]);
   });
 
-  it("hydrates editable values from a redacted model app config", () => {
+  it("hydrates editable values from a redacted model app config without mounts", () => {
     const config = create(ModelAppConfigSchema, {
       appId: {
         org: "aione",
@@ -274,9 +255,6 @@ describe("model app helpers", () => {
       memory: "16Gi",
       gpu: "1",
       gpuKey: "nvidia.com/gpu",
-      cloudStorageMounts: [
-        { cloudStorageId: "Models@Prod", mountPath: "/mnt/models" },
-      ],
     });
   });
 
@@ -295,9 +273,6 @@ describe("model app helpers", () => {
         name: "Updated Qwen",
         image: "registry.example/vllm:latest",
         param: "--max-num-seqs\n16",
-        cloudStorageMounts: [
-          { cloudStorageId: "storage-a", mountPath: "/mnt/storage" },
-        ],
       },
     });
 
@@ -312,24 +287,14 @@ describe("model app helpers", () => {
         gpu: 1,
         gpuKey: "nvidia.com/gpu",
       },
-      cloudStorageMounts: [
-        { cloudStorageId: "storage-a", mountPath: "/mnt/storage" },
-      ],
+      cloudStorageMounts: [],
       reason: "console model app edit",
     });
     expect(request).not.toHaveProperty("code");
     expect(request).not.toHaveProperty("codes");
   });
 
-  it("shares validation for create and edit cloud storage mounts", () => {
-    expect(
-      validateModelAppFormValues({
-        ...defaultModelAppFormValues,
-        cloudStorageMounts: [
-          { cloudStorageId: "storage-a", mountPath: "relative/path" },
-        ],
-      }),
-    ).toBe("云存储挂载路径必须为绝对路径");
+  it("validates model app fields without cloud storage mount state", () => {
     expect(validateModelAppFormValues(defaultModelAppFormValues)).toBeNull();
   });
 

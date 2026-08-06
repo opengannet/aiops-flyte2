@@ -79,6 +79,9 @@ function modelConfig(
       gpu: 1,
       gpuKey: "nvidia.com/gpu",
     },
+    cloudStorageMounts: [
+      { cloudStorageId: "storage-a", mountPath: "/mnt/storage-a" },
+    ],
   });
 }
 
@@ -108,6 +111,8 @@ describe("EditModelAppPage", () => {
     expect(
       await screen.findByRole("heading", { name: "编辑模型应用" }),
     ).toBeVisible();
+    expect(screen.queryByText("云存储")).not.toBeInTheDocument();
+    expect(screen.queryByText("挂载路径")).not.toBeInTheDocument();
     expect(screen.getByLabelText("应用 ID")).toHaveAttribute("readonly");
     expect(screen.getByLabelText("应用 ID")).toHaveAttribute(
       "aria-readonly",
@@ -141,6 +146,7 @@ describe("EditModelAppPage", () => {
     await waitFor(() =>
       expect(mocks.appClient.updateModelApp).toHaveBeenCalledTimes(1),
     );
+    expect(mocks.cloudStorageClient.listCloudStorages).not.toHaveBeenCalled();
     const request = mocks.appClient.updateModelApp.mock.calls[0][0];
     expect(request).toMatchObject({
       appId: { name: "qwen25-15b" },
@@ -153,6 +159,7 @@ describe("EditModelAppPage", () => {
         gpu: 1,
         gpuKey: "nvidia.com/gpu",
       },
+      cloudStorageMounts: [],
     });
     expect(request).not.toHaveProperty("code");
     expect(request).not.toHaveProperty("codes");

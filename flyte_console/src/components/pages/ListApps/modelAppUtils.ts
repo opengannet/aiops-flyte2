@@ -4,7 +4,6 @@
 
 import { create } from "@bufbuild/protobuf";
 
-import { CloudStorageMountSchema } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_definition_pb";
 import {
   App,
   IdentifierSchema,
@@ -43,10 +42,6 @@ export type ModelAppFormValues = {
   memory: string;
   gpu: string;
   gpuKey: string;
-  cloudStorageMounts: {
-    cloudStorageId: string;
-    mountPath: string;
-  }[];
 };
 
 export type BuildModelAppRequestInput = {
@@ -104,7 +99,6 @@ export const defaultModelAppFormValues: ModelAppFormValues = {
   memory: "16Gi",
   gpu: "1",
   gpuKey: DEFAULT_GPU_KEY,
-  cloudStorageMounts: [],
 };
 
 export function splitModelParam(param: string) {
@@ -154,12 +148,6 @@ export function buildCreateModelAppRequest({
         gpu,
         gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
       }),
-      cloudStorageMounts: values.cloudStorageMounts.map((mount) =>
-        create(CloudStorageMountSchema, {
-          cloudStorageId: mount.cloudStorageId.trim(),
-          mountPath: mount.mountPath.trim(),
-        }),
-      ),
     }),
   });
 }
@@ -180,12 +168,6 @@ export function buildUpdateModelAppRequest({
       gpu,
       gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
     }),
-    cloudStorageMounts: values.cloudStorageMounts.map((mount) =>
-      create(CloudStorageMountSchema, {
-        cloudStorageId: mount.cloudStorageId.trim(),
-        mountPath: mount.mountPath.trim(),
-      }),
-    ),
     reason: "console model app edit",
   });
 }
@@ -213,10 +195,6 @@ export function modelAppConfigToFormValues(
     memory: resourceDefinition?.memory ?? "",
     gpu: String(resourceDefinition?.gpu ?? 0),
     gpuKey: resourceDefinition?.gpuKey || DEFAULT_GPU_KEY,
-    cloudStorageMounts: config.cloudStorageMounts.map((mount) => ({
-      cloudStorageId: mount.cloudStorageId,
-      mountPath: mount.mountPath,
-    })),
   };
 }
 
@@ -225,13 +203,6 @@ export function validateModelAppFormValues(values: ModelAppFormValues) {
     parseModelGpu(values.gpu);
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
-  }
-  if (
-    values.cloudStorageMounts.some(
-      (mount) => !mount.mountPath.trim().startsWith("/"),
-    )
-  ) {
-    return "云存储挂载路径必须为绝对路径";
   }
   return null;
 }
