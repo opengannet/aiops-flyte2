@@ -5,13 +5,20 @@
 import { create } from "@bufbuild/protobuf";
 
 import { CloudStorageMountSchema } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_definition_pb";
-import { App, Input } from "@/gen/flyteidl2/app/app_definition_pb";
+import {
+  App,
+  IdentifierSchema,
+  Input,
+} from "@/gen/flyteidl2/app/app_definition_pb";
 import {
   CreateModelAppRequest,
   CreateModelAppRequestSchema,
+  ModelAppConfig,
   ModelAppInputSchema,
   ModelCodeSourceSchema,
   ModelResourceDefinitionSchema,
+  UpdateModelAppRequest,
+  UpdateModelAppRequestSchema,
 } from "@/gen/flyteidl2/app/app_payload_pb";
 import {
   Resources,
@@ -46,6 +53,16 @@ export type BuildModelAppRequestInput = {
   org: string;
   project: string;
   domain: string;
+  values: ModelAppFormValues;
+};
+
+export type BuildUpdateModelAppRequestInput = {
+  appId: {
+    org: string;
+    project: string;
+    domain: string;
+    name: string;
+  };
   values: ModelAppFormValues;
 };
 
@@ -145,6 +162,73 @@ export function buildCreateModelAppRequest({
       ),
     }),
   });
+}
+
+export function buildUpdateModelAppRequest({
+  appId,
+  values,
+}: BuildUpdateModelAppRequestInput): UpdateModelAppRequest {
+  const gpu = Number.parseInt(values.gpu.trim() || "0", 10);
+  return create(UpdateModelAppRequestSchema, {
+    appId: create(IdentifierSchema, appId),
+    name: values.name.trim(),
+    image: normalizeModelImageInput(values.image),
+    param: values.param,
+    resourceDefinition: create(ModelResourceDefinitionSchema, {
+      cpu: values.cpu.trim(),
+      memory: values.memory.trim(),
+      gpu: Number.isFinite(gpu) && gpu > 0 ? gpu : 0,
+      gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
+    }),
+    cloudStorageMounts: values.cloudStorageMounts.map((mount) =>
+      create(CloudStorageMountSchema, {
+        cloudStorageId: mount.cloudStorageId.trim(),
+        mountPath: mount.mountPath.trim(),
+      }),
+    ),
+    reason: "console model app edit",
+  });
+}
+
+export function modelAppConfigToFormValues(
+  config: ModelAppConfig,
+): ModelAppFormValues {
+  const resourceDefinition = config.resourceDefinition;
+  return {
+    name: config.name,
+    id: config.appId?.name ?? "",
+    code: config.code,
+    image: config.image,
+    param: config.param,
+    codes:
+      config.codes.length > 0
+        ? config.codes.map((source) => ({
+            id: source.id,
+            branch: source.branch,
+            path: source.path,
+            token: "",
+          }))
+        : [{ id: "", branch: "", path: "", token: "" }],
+    cpu: resourceDefinition?.cpu ?? "",
+    memory: resourceDefinition?.memory ?? "",
+    gpu: String(resourceDefinition?.gpu ?? 0),
+    gpuKey: resourceDefinition?.gpuKey || DEFAULT_GPU_KEY,
+    cloudStorageMounts: config.cloudStorageMounts.map((mount) => ({
+      cloudStorageId: mount.cloudStorageId,
+      mountPath: mount.mountPath,
+    })),
+  };
+}
+
+export function validateModelAppFormValues(values: ModelAppFormValues) {
+  if (
+    values.cloudStorageMounts.some(
+      (mount) => !mount.mountPath.trim().startsWith("/"),
+    )
+  ) {
+    return "云存储挂载路径必须为绝对路径";
+  }
+  return null;
 }
 
 export function extractModelMetadata(app: App | undefined): ModelAppMetadata {

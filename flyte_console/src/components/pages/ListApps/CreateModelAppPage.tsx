@@ -30,13 +30,13 @@ import {
   ModelAppFormValues,
   buildCreateModelAppRequest,
   defaultModelAppFormValues,
+  validateModelAppFormValues,
 } from "./modelAppUtils";
+import { ModelAppCloudStorageList } from "./ModelAppCloudStorageList";
+import { ModelAppFormFields } from "./ModelAppFormFields";
 
 const inputClassName =
   "h-9 w-full rounded-md border border-(--system-gray-4) bg-transparent px-3 text-sm outline-none focus:border-(--accent-text-blue)";
-const textareaClassName =
-  "min-h-32 w-full resize-y rounded-md border border-(--system-gray-4) bg-transparent px-3 py-2 font-mono text-sm outline-none focus:border-(--accent-text-blue)";
-
 export function CreateModelAppPage() {
   const params = useParams<ProjectDomainParams>();
   const router = useRouter();
@@ -253,12 +253,9 @@ export function CreateModelAppPage() {
       setError("项目上下文未加载完成");
       return;
     }
-    if (
-      values.cloudStorageMounts.some(
-        (mount) => !mount.mountPath.trim().startsWith("/"),
-      )
-    ) {
-      setError("云存储挂载路径必须为绝对路径");
+    const validationError = validateModelAppFormValues(values);
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setIsSubmitting(true);
@@ -324,128 +321,11 @@ export function CreateModelAppPage() {
               </div>
             )}
 
-            <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-              <section className="flex flex-col gap-4">
-                <h2 className="text-sm font-bold">模型信息</h2>
-                <Field label="应用名称">
-                  <input
-                    className={inputClassName}
-                    value={values.name}
-                    onChange={(event) => setField("name", event.target.value)}
-                  />
-                </Field>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="应用 ID">
-                    <input
-                      className={inputClassName}
-                      value={values.id}
-                      onChange={(event) => setField("id", event.target.value)}
-                    />
-                  </Field>
-                  <Field label="模型代码">
-                    <input
-                      className={inputClassName}
-                      value={values.code}
-                      onChange={(event) => setField("code", event.target.value)}
-                    />
-                  </Field>
-                </div>
-                <Field label="镜像">
-                  <input
-                    className={inputClassName}
-                    value={values.image}
-                    onChange={(event) => setField("image", event.target.value)}
-                  />
-                </Field>
-                <Field label="启动参数">
-                  <textarea
-                    className={textareaClassName}
-                    value={values.param}
-                    onChange={(event) => setField("param", event.target.value)}
-                  />
-                </Field>
-              </section>
-
-              <section className="flex flex-col gap-4">
-                <h2 className="text-sm font-bold">资源配置</h2>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
-                  <Field label="CPU">
-                    <input
-                      className={inputClassName}
-                      value={values.cpu}
-                      onChange={(event) => setField("cpu", event.target.value)}
-                    />
-                  </Field>
-                  <Field label="内存">
-                    <input
-                      className={inputClassName}
-                      value={values.memory}
-                      onChange={(event) =>
-                        setField("memory", event.target.value)
-                      }
-                    />
-                  </Field>
-                  <Field label="GPU">
-                    <input
-                      className={inputClassName}
-                      inputMode="numeric"
-                      value={values.gpu}
-                      onChange={(event) => setField("gpu", event.target.value)}
-                    />
-                  </Field>
-                  <Field label="GPU 资源键">
-                    <input
-                      className={inputClassName}
-                      value={values.gpuKey}
-                      onChange={(event) =>
-                        setField("gpuKey", event.target.value)
-                      }
-                    />
-                  </Field>
-                </div>
-              </section>
-            </div>
-
-            <section className="flex flex-col gap-4 pb-8">
-              <h2 className="text-sm font-bold">模型来源</h2>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <Field label="仓库地址">
-                  <input
-                    className={inputClassName}
-                    value={values.codes[0]?.id || ""}
-                    onChange={(event) => setCodeField("id", event.target.value)}
-                  />
-                </Field>
-                <Field label="分支">
-                  <input
-                    className={inputClassName}
-                    value={values.codes[0]?.branch || ""}
-                    onChange={(event) =>
-                      setCodeField("branch", event.target.value)
-                    }
-                  />
-                </Field>
-                <Field label="目标路径">
-                  <input
-                    className={inputClassName}
-                    value={values.codes[0]?.path || ""}
-                    onChange={(event) =>
-                      setCodeField("path", event.target.value)
-                    }
-                  />
-                </Field>
-                <Field label="访问令牌">
-                  <input
-                    className={inputClassName}
-                    type="password"
-                    value={values.codes[0]?.token || ""}
-                    onChange={(event) =>
-                      setCodeField("token", event.target.value)
-                    }
-                  />
-                </Field>
-              </div>
-            </section>
+            <ModelAppFormFields
+              values={values}
+              onFieldChange={setField}
+              onCodeFieldChange={setCodeField}
+            />
 
             <section className="flex flex-col gap-4 pb-8">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -556,71 +436,14 @@ export function CreateModelAppPage() {
                 </div>
               )}
 
-              {cloudStorageError && (
-                <div className="text-sm text-red-500">{cloudStorageError}</div>
-              )}
-              {cloudStorageError ? null : isLoadingCloudStorages ? (
-                <div className="text-sm dark:text-(--system-gray-6)">
-                  加载中
-                </div>
-              ) : cloudStorages.length === 0 ? (
-                <div className="text-sm dark:text-(--system-gray-6)">
-                  暂无可用云存储
-                </div>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  {cloudStorages.map((storage) => {
-                    const storageId = storage.id?.id ?? "";
-                    const selectedMount = values.cloudStorageMounts.find(
-                      (mount) => mount.cloudStorageId === storageId,
-                    );
-                    return (
-                      <div
-                        key={storageId}
-                        className="grid gap-3 border border-(--system-gray-4) p-3 md:grid-cols-[1fr_320px]"
-                      >
-                        <label className="flex min-w-0 items-start gap-3 text-sm">
-                          <input
-                            className="mt-1"
-                            type="checkbox"
-                            checked={Boolean(selectedMount)}
-                            onChange={(event) =>
-                              setCloudStorageSelected(
-                                storageId,
-                                event.target.checked,
-                              )
-                            }
-                          />
-                          <span className="min-w-0">
-                            <span className="block font-medium">
-                              {storage.name || storageId}
-                            </span>
-                            <span className="mt-1 grid gap-x-4 gap-y-1 text-xs dark:text-(--system-gray-6) sm:grid-cols-3">
-                              <span>{storageId}</span>
-                              <span>{storage.sizeGb} GB</span>
-                              <span>{storage.storageClassName || "默认"}</span>
-                            </span>
-                          </span>
-                        </label>
-                        <Field label="挂载路径">
-                          <input
-                            className={inputClassName}
-                            disabled={!selectedMount}
-                            placeholder="/mnt/storage"
-                            value={selectedMount?.mountPath ?? ""}
-                            onChange={(event) =>
-                              setCloudStorageMountPath(
-                                storageId,
-                                event.target.value,
-                              )
-                            }
-                          />
-                        </Field>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <ModelAppCloudStorageList
+                cloudStorages={cloudStorages}
+                error={cloudStorageError}
+                isLoading={isLoadingCloudStorages}
+                mounts={values.cloudStorageMounts}
+                onSelectedChange={setCloudStorageSelected}
+                onMountPathChange={setCloudStorageMountPath}
+              />
             </section>
           </form>
         </div>

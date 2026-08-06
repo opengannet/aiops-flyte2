@@ -14,11 +14,16 @@ import {
 } from "@/gen/flyteidl2/core/tasks_pb";
 import {
   buildCreateModelAppRequest,
+  buildUpdateModelAppRequest,
+  defaultModelAppFormValues,
   extractAppResourceSummary,
   extractModelCloudStorageMounts,
+  modelAppConfigToFormValues,
   normalizeModelImageInput,
   splitModelParam,
+  validateModelAppFormValues,
 } from "./modelAppUtils";
+import { ModelAppConfigSchema } from "@/gen/flyteidl2/app/app_payload_pb";
 
 describe("model app helpers", () => {
   it("builds CreateModelAppRequest from form values", () => {
@@ -216,5 +221,115 @@ describe("model app helpers", () => {
         mountPath: "/mnt/storage-a",
       },
     ]);
+  });
+
+  it("hydrates editable values from a redacted model app config", () => {
+    const config = create(ModelAppConfigSchema, {
+      appId: {
+        org: "aione",
+        project: "flytesnacks",
+        domain: "development",
+        name: "qwen25-15b",
+      },
+      name: "Qwen2.5 1.5B Instruct",
+      code: "qwen25-15b",
+      image: "vllm",
+      param:
+        "--served-model-name\nqwen25-15b\n--max-num-seqs\n16\n--max-model-len\n8192\n--enforce-eager",
+      codes: [
+        {
+          id: "https://gitea.example/aione/qwen.git",
+          branch: "main",
+          path: "models/qwen",
+          tokenConfigured: true,
+        },
+      ],
+      resourceDefinition: {
+        cpu: "4",
+        memory: "16Gi",
+        gpu: 1,
+        gpuKey: "nvidia.com/gpu",
+      },
+      cloudStorageMounts: [
+        { cloudStorageId: "Models@Prod", mountPath: "/mnt/models" },
+      ],
+    });
+
+    expect(modelAppConfigToFormValues(config)).toEqual({
+      name: "Qwen2.5 1.5B Instruct",
+      id: "qwen25-15b",
+      code: "qwen25-15b",
+      image: "vllm",
+      param:
+        "--served-model-name\nqwen25-15b\n--max-num-seqs\n16\n--max-model-len\n8192\n--enforce-eager",
+      codes: [
+        {
+          id: "https://gitea.example/aione/qwen.git",
+          branch: "main",
+          path: "models/qwen",
+          token: "",
+        },
+      ],
+      cpu: "4",
+      memory: "16Gi",
+      gpu: "1",
+      gpuKey: "nvidia.com/gpu",
+      cloudStorageMounts: [
+        { cloudStorageId: "Models@Prod", mountPath: "/mnt/models" },
+      ],
+    });
+  });
+
+  it("builds an update request with editable fields only", () => {
+    const request = buildUpdateModelAppRequest({
+      appId: {
+        org: "aione",
+        project: "flytesnacks",
+        domain: "development",
+        name: "qwen25-15b",
+      },
+      values: {
+        ...defaultModelAppFormValues,
+        id: "qwen25-15b",
+        code: "immutable-code",
+        name: "Updated Qwen",
+        image: "registry.example/vllm:latest",
+        param: "--max-num-seqs\n16",
+        cloudStorageMounts: [
+          { cloudStorageId: "storage-a", mountPath: "/mnt/storage" },
+        ],
+      },
+    });
+
+    expect(request).toMatchObject({
+      appId: { name: "qwen25-15b" },
+      name: "Updated Qwen",
+      image: "registry.example/vllm:latest",
+      param: "--max-num-seqs\n16",
+      resourceDefinition: {
+        cpu: "4",
+        memory: "16Gi",
+        gpu: 1,
+        gpuKey: "nvidia.com/gpu",
+      },
+      cloudStorageMounts: [
+        { cloudStorageId: "storage-a", mountPath: "/mnt/storage" },
+      ],
+      reason: "console model app edit",
+    });
+    expect(request).not.toHaveProperty("code");
+    expect(request).not.toHaveProperty("codes");
+  });
+
+  it("shares validation for create and edit cloud storage mounts", () => {
+    expect(
+      validateModelAppFormValues({
+        ...defaultModelAppFormValues,
+        cloudStorageMounts: [
+          { cloudStorageId: "storage-a", mountPath: "relative/path" },
+        ],
+      }),
+    ).toBe("云存储挂载路径必须为绝对路径");
+    expect(validateModelAppFormValues(defaultModelAppFormValues)).toBeNull();
   });
 });
