@@ -271,33 +271,57 @@ func TestGetAuxSecretReturnsOnlySecretOwnedByApp(t *testing.T) {
 	assert.ErrorContains(t, err, "not owned by app")
 }
 
-func TestGetAuxPVCReturnsOnlyCloudStoragePVCOwnedByApp(t *testing.T) {
+func TestGetAuxPVCAuthorizesLiveAppReferenceInsteadOfMutableOwnerLabels(t *testing.T) {
 	client := testClient(t)
-	app := testApp("proj", "dev", "qwen", "vllm")
-	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+	sharedPVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
 		Name: "cs-models-prod",
 		Labels: map[string]string{
 			labelCloudStorage:            "true",
 			"flyte.org/cloud-storage-id": "Models@Prod",
 		},
 	}}
-	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}))
+	nonCloudPVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "model-cache"}}
+	unreferencedCloudPVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "cs-unreferenced",
+		Labels: map[string]string{
+			labelCloudStorage:            "true",
+			"flyte.org/cloud-storage-id": "Unreferenced",
+		},
+	}}
+	appWithVolumes := func(name string) *flyteapp.App {
+		podSpec := corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "vllm", Image: "vllm"}},
+			Volumes: []corev1.Volume{
+				{Name: "cloud-storage-0", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: sharedPVC.Name}}},
+				{Name: "cloud-storage-1", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: nonCloudPVC.Name}}},
+			},
+		}
+		return &flyteapp.App{
+			Metadata: &flyteapp.Meta{Id: &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: name}},
+			Spec: &flyteapp.Spec{AppPayload: &flyteapp.Spec_Pod{Pod: &flytecoreapp.K8SPod{
+				PodSpec: podSpecStruct(t, podSpec), PrimaryContainerName: "vllm",
+			}}},
+		}
+	}
+	appA := appWithVolumes("qwen-a")
+	appB := appWithVolumes("qwen-b")
+	require.NoError(t, client.DeployWithResources(context.Background(), appA, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{
+		sharedPVC, nonCloudPVC, unreferencedCloudPVC,
+	}}))
+	require.NoError(t, client.DeployWithResources(context.Background(), appB, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{sharedPVC.DeepCopy()}}))
+	storedSharedPVC := &corev1.PersistentVolumeClaim{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey(sharedPVC.Name), storedSharedPVC))
+	assert.Equal(t, appB.Metadata.Id.Name, storedSharedPVC.Labels[labelAppName], "the second app owns the mutable auxiliary labels")
 
-	got, err := client.GetAuxPVC(context.Background(), app.Metadata.Id, pvc.Name)
+	got, err := client.GetAuxPVC(context.Background(), appA.Metadata.Id, sharedPVC.Name)
 	require.NoError(t, err)
 	assert.Equal(t, "Models@Prod", got.Labels["flyte.org/cloud-storage-id"])
 
-	foreign := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
-		Name:      "foreign-cloud-storage",
-		Namespace: AppNamespace,
-		Labels: map[string]string{
-			labelCloudStorage:            "true",
-			"flyte.org/cloud-storage-id": "Foreign@Prod",
-		},
-	}}
-	require.NoError(t, client.k8sClient.Create(context.Background(), foreign))
-	_, err = client.GetAuxPVC(context.Background(), app.Metadata.Id, foreign.Name)
-	assert.ErrorContains(t, err, "not owned by app")
+	_, err = client.GetAuxPVC(context.Background(), appA.Metadata.Id, unreferencedCloudPVC.Name)
+	assert.ErrorContains(t, err, "not referenced by app")
+
+	_, err = client.GetAuxPVC(context.Background(), appA.Metadata.Id, nonCloudPVC.Name)
+	assert.ErrorContains(t, err, "not a cloud storage volume")
 }
 
 func TestDeployRejectsReplicaRanges(t *testing.T) {

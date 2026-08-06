@@ -638,14 +638,25 @@ func (c *AppK8sClient) GetAuxSecret(ctx context.Context, appID *flyteapp.Identif
 }
 
 func (c *AppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error) {
+	deployment := &appsv1.Deployment{}
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: AppResourceName(appID)}, deployment); err != nil {
+		return nil, err
+	}
+	referenced := false
+	for _, volume := range deployment.Spec.Template.Spec.Volumes {
+		claim := volume.PersistentVolumeClaim
+		if strings.HasPrefix(volume.Name, "cloud-storage-") && claim != nil && claim.ClaimName == name {
+			referenced = true
+			break
+		}
+	}
+	if !referenced {
+		return nil, fmt.Errorf("PersistentVolumeClaim %s is not referenced by app %s", name, appID.GetName())
+	}
+
 	pvc := &corev1.PersistentVolumeClaim{}
 	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, pvc); err != nil {
 		return nil, err
-	}
-	for key, value := range appAuxLabels(appID) {
-		if pvc.Labels[key] != value {
-			return nil, fmt.Errorf("PersistentVolumeClaim %s is not owned by app %s", name, appID.GetName())
-		}
 	}
 	if pvc.Labels[labelCloudStorage] != "true" {
 		return nil, fmt.Errorf("PersistentVolumeClaim %s is not a cloud storage volume", name)
