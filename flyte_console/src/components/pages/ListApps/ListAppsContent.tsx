@@ -34,8 +34,7 @@ const useCodeSnippets = () => {
   return [
     {
       id: '1',
-      label:
-        'If you don’t have a local flyte configuration, first create it with:',
+      label: '如果本地没有 Flyte 配置，请先运行以下命令创建：',
       code: `flyte create config \\
     --endpoint ${endpointHost} \\
     --project ${params.project} \\
@@ -44,16 +43,16 @@ const useCodeSnippets = () => {
     },
     {
       id: '2',
-      label: 'Then create an app script called app.py:',
+      label: '然后创建名为 app.py 的应用脚本：',
       code: `import flyte
 import flyte.app
 
 image = flyte.Image.from_debian_base(python_version=(3, 12)).with_pip_packages("streamlit==1.41.1")
 
-# The 'App' declaration.
-# Uses the 'ImageSpec' declared above.
-# In this case we do not need to supply any app code
-# as we are using the built-in Streamlit 'hello' app.
+# “App” 声明。
+# 使用上面声明的 “ImageSpec”。
+# 在此示例中，无需提供任何应用代码，
+# 因为我们使用 Streamlit 内置的 “hello” 应用。
 app_env = flyte.app.AppEnvironment(
     name="streamlit-hello",
     image=image,
@@ -63,7 +62,7 @@ app_env = flyte.app.AppEnvironment(
     },
     {
       id: '3',
-      label: 'Then serve the app:',
+      label: '然后运行应用：',
       code: `flyte serve app.py app_env`,
     },
   ]
@@ -83,7 +82,7 @@ export const ListAppsContent = ({
       isError={listAppsQuery.isError}
       isLoading={listAppsQuery.isLoading}
       searchQuery={searchQuery}
-      subtitle="Apps allow you to build and serve your own web apps, enabling you to build model endpoints, AI inference-time components, interactive dashboards, connectors, and more."
+      subtitle="应用让您能够构建和运行自己的 Web 应用，包括模型端点、AI 推理组件、交互式仪表板、连接器等。"
       content={
         <div>
           <Link
@@ -91,7 +90,7 @@ export const ListAppsContent = ({
             href={FLYTE_DOCS_APPS_URL}
             className="flex items-center justify-center gap-2 p-3 text-sm"
           >
-            <span>How to create an app</span>
+            <span>如何创建应用</span>
             <ArrowTopRightIcon className="h-2.125 w-2" />
           </Link>
           <div className="max-w-[600px] min-w-[550px]">

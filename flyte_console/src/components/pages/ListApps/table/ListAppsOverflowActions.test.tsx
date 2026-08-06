@@ -8,13 +8,17 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AppSchema } from "@/gen/flyteidl2/app/app_definition_pb";
+import {
+  AppSchema,
+  Status_DeploymentStatus,
+} from "@/gen/flyteidl2/app/app_definition_pb";
 import { ListAppsOverflowActions } from "./ListAppsOverflowActions";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   start: vi.fn(),
   stop: vi.fn(),
+  writeText: vi.fn(),
 }));
 
 vi.mock("@/components/Popovers", () => ({
@@ -44,7 +48,13 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("ListAppsOverflowActions", () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: mocks.writeText },
+    });
+  });
   afterEach(cleanup);
 
   it("shows Edit for VLLM apps and navigates to the edit route", async () => {
@@ -89,18 +99,71 @@ describe("ListAppsOverflowActions", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("shows Simplified Chinese labels for app details and copying the endpoint", () => {
+  it("navigates to the exact app details route", async () => {
+    const app = create(AppSchema, {
+      metadata: { id: { name: "qwen25-15b" } },
+    });
+    render(<ListAppsOverflowActions app={app} />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "查看应用详情" }),
+    );
+
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/domain/development/project/aione/apps/qwen25-15b",
+    );
+  });
+
+  it("starts a stopped app without calling the stop mutation", async () => {
+    const app = create(AppSchema, {
+      metadata: { id: { name: "stopped-app" } },
+      status: {
+        conditions: [
+          { deploymentStatus: Status_DeploymentStatus.STOPPED },
+        ],
+      },
+    });
+    render(<ListAppsOverflowActions app={app} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "启动应用" }));
+
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    expect(mocks.stop).not.toHaveBeenCalled();
+  });
+
+  it("stops an active app without calling the start mutation", async () => {
+    const app = create(AppSchema, {
+      metadata: { id: { name: "active-app" } },
+      status: {
+        conditions: [{ deploymentStatus: Status_DeploymentStatus.ACTIVE }],
+      },
+    });
+    render(<ListAppsOverflowActions app={app} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "停止应用" }));
+
+    expect(mocks.stop).toHaveBeenCalledTimes(1);
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it("copies the exact app name and endpoint values", async () => {
     const app = create(AppSchema, {
       metadata: { id: { name: "qwen25-15b" } },
       status: { ingress: { publicUrl: "https://apps.example.test/qwen25-15b" } },
     });
     render(<ListAppsOverflowActions app={app} />);
 
-    expect(
-      screen.getByRole("button", { name: "查看应用详情" }),
-    ).toBeInTheDocument();
-    expect(
+    await userEvent.click(
+      screen.getByRole("button", { name: "复制应用名称" }),
+    );
+    await userEvent.click(
       screen.getByRole("button", { name: "复制访问地址" }),
-    ).toBeInTheDocument();
+    );
+
+    expect(mocks.writeText).toHaveBeenNthCalledWith(1, "qwen25-15b");
+    expect(mocks.writeText).toHaveBeenNthCalledWith(
+      2,
+      "https://apps.example.test/qwen25-15b",
+    );
   });
 });

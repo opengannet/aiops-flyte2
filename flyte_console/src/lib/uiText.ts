@@ -72,6 +72,7 @@ type UiTextKey = keyof typeof uiText;
 export const getUiText = (key: UiTextKey) => uiText[key];
 
 const dataLabelMap: Record<string, string> = {
+  apps: uiText.apps,
   projects: uiText.projects,
   runs: uiText.runs,
   triggers: uiText.triggers,
