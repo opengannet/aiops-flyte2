@@ -271,6 +271,35 @@ func TestGetAuxSecretReturnsOnlySecretOwnedByApp(t *testing.T) {
 	assert.ErrorContains(t, err, "not owned by app")
 }
 
+func TestGetAuxPVCReturnsOnlyCloudStoragePVCOwnedByApp(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "qwen", "vllm")
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "cs-models-prod",
+		Labels: map[string]string{
+			labelCloudStorage:            "true",
+			"flyte.org/cloud-storage-id": "Models@Prod",
+		},
+	}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}))
+
+	got, err := client.GetAuxPVC(context.Background(), app.Metadata.Id, pvc.Name)
+	require.NoError(t, err)
+	assert.Equal(t, "Models@Prod", got.Labels["flyte.org/cloud-storage-id"])
+
+	foreign := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+		Name:      "foreign-cloud-storage",
+		Namespace: AppNamespace,
+		Labels: map[string]string{
+			labelCloudStorage:            "true",
+			"flyte.org/cloud-storage-id": "Foreign@Prod",
+		},
+	}}
+	require.NoError(t, client.k8sClient.Create(context.Background(), foreign))
+	_, err = client.GetAuxPVC(context.Background(), app.Metadata.Id, foreign.Name)
+	assert.ErrorContains(t, err, "not owned by app")
+}
+
 func TestDeployRejectsReplicaRanges(t *testing.T) {
 	client := testClient(t)
 	app := testApp("proj", "dev", "myapp", "nginx")

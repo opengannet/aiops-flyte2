@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -114,6 +115,14 @@ func (m *mockAppK8sClient) GetAuxSecret(ctx context.Context, appID *flyteapp.Ide
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*corev1.Secret), args.Error(1)
+}
+
+func (m *mockAppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error) {
+	args := m.Called(ctx, appID, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*corev1.PersistentVolumeClaim), args.Error(1)
 }
 
 func (m *mockAppK8sClient) List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error) {
@@ -277,7 +286,7 @@ func TestGetModelAppConfigSanitizesCredentialsFromHistoricalRepositoryURL(t *tes
 	input := &flyteapp.ModelAppInput{
 		Org: "aione", Project: "proj", Domain: "dev", Name: "Qwen", Id: "qwen", Code: "qwen",
 		Codes: []*flyteapp.ModelCodeSource{{
-			Id: "https://git-user:embedded-password@gitea.example.com/aione/qwen.git", Branch: "main",
+			Id: "https://git-user:embedded-password@gitea.example.com/aione/qwen.git?X-Amz-Credential=temporary&X-Amz-Signature=presigned-secret#fragment-secret", Branch: "main",
 		}},
 	}
 	app, resources, err := buildModelApp(input, nil)
@@ -287,6 +296,9 @@ func TestGetModelAppConfigSanitizesCredentialsFromHistoricalRepositoryURL(t *tes
 	require.NoError(t, err)
 	assert.NotContains(t, string(specJSON), "git-user")
 	assert.NotContains(t, string(specJSON), "embedded-password")
+	assert.NotContains(t, string(specJSON), "X-Amz")
+	assert.NotContains(t, string(specJSON), "presigned-secret")
+	assert.NotContains(t, string(specJSON), "fragment-secret")
 	inputs := make([]*flyteapp.Input, 0, len(app.Spec.Inputs.Items))
 	for _, item := range app.Spec.Inputs.Items {
 		if item.GetName() != "model_sources" {
@@ -311,6 +323,9 @@ func TestGetModelAppConfigSanitizesCredentialsFromHistoricalRepositoryURL(t *tes
 	assert.True(t, response.Msg.GetModel().GetCodes()[0].GetTokenConfigured())
 	assert.NotContains(t, response.Msg.String(), "git-user")
 	assert.NotContains(t, response.Msg.String(), "embedded-password")
+	assert.NotContains(t, response.Msg.String(), "X-Amz")
+	assert.NotContains(t, response.Msg.String(), "presigned-secret")
+	assert.NotContains(t, response.Msg.String(), "fragment-secret")
 	k8s.AssertExpectations(t)
 }
 
@@ -611,6 +626,38 @@ func TestCreateModelAppRejectsRepositoryURLCredentials(t *testing.T) {
 	k8s.AssertNotCalled(t, "DeployWithResources", mock.Anything, mock.Anything, mock.Anything)
 }
 
+func TestCreateModelAppRejectsSensitiveOrInvalidRepositoryURLs(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "pre-signed query", url: "https://gitea.example.com/aione/qwen.git?X-Amz-Credential=temporary&X-Amz-Signature=secret"},
+		{name: "fragment", url: "https://gitea.example.com/aione/qwen.git#access-token"},
+		{name: "missing scheme", url: "gitea.example.com/aione/qwen.git"},
+		{name: "scp style missing scheme", url: "git@gitea.example.com:aione/qwen.git"},
+		{name: "malformed URL", url: "https://%zz/aione/qwen.git"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			k8s := &mockAppK8sClient{}
+			k8s.On("DeployWithResources", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			k8s.On("PublicIngress", mock.Anything).Return((*flyteapp.Ingress)(nil)).Maybe()
+			svc := NewInternalAppService(k8s)
+
+			_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+				Model: &flyteapp.ModelAppInput{
+					Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+					Codes: []*flyteapp.ModelCodeSource{{Id: tt.url, Branch: "main"}},
+				},
+			}))
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			k8s.AssertNotCalled(t, "DeployWithResources", mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
 func TestCreateModelAppRejectsInvalidResourceQuantityWithoutPanicking(t *testing.T) {
 	k8s := &mockAppK8sClient{}
 	svc := NewInternalAppService(k8s)
@@ -653,6 +700,39 @@ func TestGetModelAppConfigRestoresOriginalCloudStorageIDFromSpec(t *testing.T) {
 	require.Len(t, response.Msg.GetModel().GetCloudStorageMounts(), 1)
 	assert.Equal(t, "Models@Prod", response.Msg.GetModel().GetCloudStorageMounts()[0].GetCloudStorageId())
 	assert.Equal(t, "/data/models", response.Msg.GetModel().GetCloudStorageMounts()[0].GetMountPath())
+}
+
+func TestGetModelAppConfigRestoresHistoricalCloudStorageIDFromLivePVCLabel(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+		CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{CloudStorageId: "Models@Prod", MountPath: "/data/models"}},
+	}
+	storage := &models.CloudStorage{
+		CloudStorageKey: models.CloudStorageKey{Org: "aione", Project: "proj", Domain: "dev", ID: "Models@Prod"},
+		SizeGB:          10, StorageClass: "local-path",
+	}
+	app, resources, err := buildModelApp(input, []resolvedModelAppCloudStorageMount{{storage: storage, mountPath: "/data/models"}})
+	require.NoError(t, err)
+	app.Spec.Inputs.Items = slices.DeleteFunc(app.Spec.Inputs.Items, func(item *flyteapp.Input) bool {
+		return item.GetName() == "cloud_storage_mounts"
+	})
+	var podSpec corev1.PodSpec
+	require.NoError(t, utils.UnmarshalStructToObj(app.Spec.GetPod().GetPodSpec(), &podSpec))
+	require.Len(t, resources.PersistentVolumeClaims, 2)
+	cloudPVC := resources.PersistentVolumeClaims[1]
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
+	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&podSpec, nil)
+	k8s.On("GetAuxPVC", mock.Anything, app.Metadata.Id, cloudPVC.Name).Return(cloudPVC, nil)
+	svc := NewInternalAppService(k8s)
+
+	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
+	require.NoError(t, err)
+	require.Len(t, response.Msg.GetModel().GetCloudStorageMounts(), 1)
+	assert.Equal(t, "Models@Prod", response.Msg.GetModel().GetCloudStorageMounts()[0].GetCloudStorageId())
+	assert.Equal(t, "/data/models", response.Msg.GetModel().GetCloudStorageMounts()[0].GetMountPath())
+	k8s.AssertExpectations(t)
 }
 
 func TestCreateModelApp_RejectsRelativeCloudStorageMountPath(t *testing.T) {

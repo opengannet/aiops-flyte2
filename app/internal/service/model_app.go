@@ -433,9 +433,9 @@ func redactedModelSources(input *flyteapp.ModelAppInput, modelCode string) strin
 	}
 	views := make([]*flyteapp.ModelCodeSourceView, 0, len(codes))
 	for _, code := range codes {
-		sanitizedID, embeddedCredentials := sanitizeRepositoryID(code.ID)
+		sanitizedID, sensitive, valid := sanitizeRepositoryID(code.ID)
 		views = append(views, &flyteapp.ModelCodeSourceView{
-			Id: sanitizedID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "" || embeddedCredentials,
+			Id: sanitizedID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "" || sensitive || !valid,
 		})
 	}
 	raw, err := json.Marshal(views)
@@ -465,32 +465,39 @@ func persistedModelCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMount
 
 func validateModelSourceCredentials(sources []*flyteapp.ModelCodeSource) error {
 	for _, source := range sources {
-		_, hasCredentials := sanitizeRepositoryID(source.GetId())
-		if hasCredentials {
-			return fmt.Errorf("repository URL must not contain embedded credentials; use the token field")
+		_, sensitive, valid := sanitizeRepositoryID(source.GetId())
+		if !valid {
+			return fmt.Errorf("repository URL must be an absolute HTTP(S), SSH, or Git URL with a host")
+		}
+		if sensitive {
+			return fmt.Errorf("repository URL must not contain userinfo, query parameters, or a fragment; use the token field")
 		}
 	}
 	return nil
 }
 
-func sanitizeRepositoryID(id string) (string, bool) {
+func sanitizeRepositoryID(id string) (string, bool, bool) {
 	id = strings.TrimSpace(id)
 	parsed, err := url.Parse(id)
-	if err != nil || parsed.Scheme == "" {
-		return id, false
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || !supportedRepositoryScheme(parsed.Scheme) {
+		return "", true, false
 	}
-	hasCredentials := parsed.User != nil
+	sensitive := parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.RawFragment != ""
 	parsed.User = nil
-	query := parsed.Query()
-	for key := range query {
-		switch strings.ToLower(key) {
-		case "token", "access_token", "private_token", "password", "auth", "api_key", "apikey":
-			query.Del(key)
-			hasCredentials = true
-		}
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	parsed.RawFragment = ""
+	return parsed.String(), sensitive, true
+}
+
+func supportedRepositoryScheme(scheme string) bool {
+	switch strings.ToLower(scheme) {
+	case "http", "https", "ssh", "git":
+		return true
+	default:
+		return false
 	}
-	parsed.RawQuery = query.Encode()
-	return parsed.String(), hasCredentials
 }
 
 func validateModelResourceDefinition(def *flyteapp.ModelResourceDefinition) error {

@@ -44,6 +44,10 @@ func (s *InternalAppService) GetModelAppConfig(
 	if err != nil {
 		return nil, err
 	}
+	cloudStorageMounts, err := s.persistedOrRuntimeModelCloudStorageMounts(ctx, app, podSpec, container)
+	if err != nil {
+		return nil, err
+	}
 	model := &flyteapp.ModelAppConfig{
 		AppId:              app.GetMetadata().GetId(),
 		Name:               app.GetSpec().GetProfile().GetName(),
@@ -52,7 +56,7 @@ func (s *InternalAppService) GetModelAppConfig(
 		Param:              strings.Join(editableModelArgs(container.Args), "\n"),
 		Codes:              codes,
 		ResourceDefinition: modelResourcesFromContainer(app, container),
-		CloudStorageMounts: persistedOrRuntimeModelCloudStorageMounts(app, podSpec, container),
+		CloudStorageMounts: cloudStorageMounts,
 	}
 	return connect.NewResponse(&flyteapp.GetModelAppConfigResponse{Model: model}), nil
 }
@@ -202,9 +206,9 @@ func (s *InternalAppService) modelCodeSourceViews(ctx context.Context, app *flyt
 	}
 	views := make([]*flyteapp.ModelCodeSourceView, 0, len(codes))
 	for _, code := range codes {
-		sanitizedID, embeddedCredentials := sanitizeRepositoryID(code.ID)
+		sanitizedID, sensitive, valid := sanitizeRepositoryID(code.ID)
 		views = append(views, &flyteapp.ModelCodeSourceView{
-			Id: sanitizedID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "" || embeddedCredentials,
+			Id: sanitizedID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "" || sensitive || !valid,
 		})
 	}
 	return views, nil
@@ -212,9 +216,9 @@ func (s *InternalAppService) modelCodeSourceViews(ctx context.Context, app *flyt
 
 func sanitizeModelCodeSourceViews(views []*flyteapp.ModelCodeSourceView) []*flyteapp.ModelCodeSourceView {
 	for _, view := range views {
-		sanitizedID, embeddedCredentials := sanitizeRepositoryID(view.GetId())
+		sanitizedID, sensitive, valid := sanitizeRepositoryID(view.GetId())
 		view.Id = sanitizedID
-		view.TokenConfigured = view.GetTokenConfigured() || embeddedCredentials
+		view.TokenConfigured = view.GetTokenConfigured() || sensitive || !valid
 	}
 	return views
 }
@@ -278,7 +282,19 @@ func modelResourcesFromContainer(app *flyteapp.App, container *corev1.Container)
 	return definition
 }
 
-func modelCloudStorageMounts(podSpec *corev1.PodSpec, container *corev1.Container) []*cloudstoragepb.CloudStorageMount {
+func (s *InternalAppService) persistedOrRuntimeModelCloudStorageMounts(
+	ctx context.Context,
+	app *flyteapp.App,
+	podSpec *corev1.PodSpec,
+	container *corev1.Container,
+) ([]*cloudstoragepb.CloudStorageMount, error) {
+	if persisted := modelInputString(app, "cloud_storage_mounts"); persisted != "" {
+		mounts := make([]*cloudstoragepb.CloudStorageMount, 0)
+		if err := json.Unmarshal([]byte(persisted), &mounts); err == nil {
+			return mounts, nil
+		}
+	}
+
 	mountPaths := make(map[string]string, len(container.VolumeMounts))
 	for _, mount := range container.VolumeMounts {
 		mountPaths[mount.Name] = mount.MountPath
@@ -290,17 +306,19 @@ func modelCloudStorageMounts(podSpec *corev1.PodSpec, container *corev1.Containe
 		if !strings.HasPrefix(volume.Name, "cloud-storage-") || claim == nil || !strings.HasPrefix(claim.ClaimName, "cs-") || mountPath == "" {
 			continue
 		}
-		result = append(result, &cloudstoragepb.CloudStorageMount{CloudStorageId: strings.TrimPrefix(claim.ClaimName, "cs-"), MountPath: mountPath})
-	}
-	return result
-}
-
-func persistedOrRuntimeModelCloudStorageMounts(app *flyteapp.App, podSpec *corev1.PodSpec, container *corev1.Container) []*cloudstoragepb.CloudStorageMount {
-	if persisted := modelInputString(app, "cloud_storage_mounts"); persisted != "" {
-		mounts := make([]*cloudstoragepb.CloudStorageMount, 0)
-		if err := json.Unmarshal([]byte(persisted), &mounts); err == nil {
-			return mounts
+		pvc, err := s.k8s.GetAuxPVC(ctx, app.GetMetadata().GetId(), claim.ClaimName)
+		if err != nil {
+			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to read cloud storage PVC %s: %w", claim.ClaimName, err))
 		}
+		cloudStorageID := strings.TrimSpace(pvc.Labels["flyte.org/cloud-storage-id"])
+		if cloudStorageID == "" {
+			fallbackID := strings.TrimPrefix(claim.ClaimName, "cs-")
+			if fallbackID == "" || modelAppCloudStoragePVCName(fallbackID) != claim.ClaimName {
+				return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("cloud storage PVC %s has no recoverable storage id", claim.ClaimName))
+			}
+			cloudStorageID = fallbackID
+		}
+		result = append(result, &cloudstoragepb.CloudStorageMount{CloudStorageId: cloudStorageID, MountPath: mountPath})
 	}
-	return modelCloudStorageMounts(podSpec, container)
+	return result, nil
 }

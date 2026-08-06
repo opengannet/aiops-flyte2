@@ -68,6 +68,7 @@ type AppK8sClientInterface interface {
 	GetApp(ctx context.Context, appID *flyteapp.Identifier) (*flyteapp.App, error)
 	GetRuntimePodSpec(ctx context.Context, appID *flyteapp.Identifier) (*corev1.PodSpec, error)
 	GetAuxSecret(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.Secret, error)
+	GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error)
 	List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error)
 	Delete(ctx context.Context, appID *flyteapp.Identifier) error
 	GetReplicas(ctx context.Context, appID *flyteapp.Identifier) ([]*flyteapp.Replica, error)
@@ -634,6 +635,22 @@ func (c *AppK8sClient) GetAuxSecret(ctx context.Context, appID *flyteapp.Identif
 		}
 	}
 	return secret, nil
+}
+
+func (c *AppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error) {
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, pvc); err != nil {
+		return nil, err
+	}
+	for key, value := range appAuxLabels(appID) {
+		if pvc.Labels[key] != value {
+			return nil, fmt.Errorf("PersistentVolumeClaim %s is not owned by app %s", name, appID.GetName())
+		}
+	}
+	if pvc.Labels[labelCloudStorage] != "true" {
+		return nil, fmt.Errorf("PersistentVolumeClaim %s is not a cloud storage volume", name)
+	}
+	return pvc, nil
 }
 
 func (c *AppK8sClient) List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error) {
