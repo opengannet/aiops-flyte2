@@ -83,12 +83,14 @@ func (s *AppService) UpdateModelApp(
 	ctx context.Context,
 	req *connect.Request[flyteapp.UpdateModelAppRequest],
 ) (*connect.Response[flyteapp.UpdateModelAppResponse], error) {
+	if s.cache != nil {
+		// The data plane may replace the Deployment before a later
+		// materialization step reports an error, so invalidate eagerly.
+		s.cache.Remove(cacheKey(req.Msg.GetAppId()))
+	}
 	resp, err := s.internalClient.UpdateModelApp(ctx, req)
 	if err != nil {
 		return nil, err
-	}
-	if s.cache != nil {
-		s.cache.Remove(cacheKey(req.Msg.GetAppId()))
 	}
 	return resp, nil
 }

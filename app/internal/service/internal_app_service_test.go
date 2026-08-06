@@ -273,6 +273,47 @@ func TestGetModelAppConfigUsesLiveCustomArgsAndRedactsRepositoryToken(t *testing
 	k8s.AssertExpectations(t)
 }
 
+func TestGetModelAppConfigSanitizesCredentialsFromHistoricalRepositoryURL(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org: "aione", Project: "proj", Domain: "dev", Name: "Qwen", Id: "qwen", Code: "qwen",
+		Codes: []*flyteapp.ModelCodeSource{{
+			Id: "https://git-user:embedded-password@gitea.example.com/aione/qwen.git", Branch: "main",
+		}},
+	}
+	app, resources, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	require.Len(t, resources.Secrets, 1)
+	specJSON, err := protojson.Marshal(app.Spec)
+	require.NoError(t, err)
+	assert.NotContains(t, string(specJSON), "git-user")
+	assert.NotContains(t, string(specJSON), "embedded-password")
+	inputs := make([]*flyteapp.Input, 0, len(app.Spec.Inputs.Items))
+	for _, item := range app.Spec.Inputs.Items {
+		if item.GetName() != "model_sources" {
+			inputs = append(inputs, item)
+		}
+	}
+	app.Spec.Inputs.Items = inputs
+	runtimePod := buildModelPodSpec(resolveModelImage("vllm"), []string{
+		"--model", "/models/qwen", "--host", "0.0.0.0", "--port", "8000",
+	}, defaultVLLMPort, nil, "qwen-proj-dev-model-cache", "qwen-proj-dev-model-downloader", true)
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
+	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&runtimePod, nil)
+	k8s.On("GetAuxSecret", mock.Anything, app.Metadata.Id, "qwen-proj-dev-model-downloader").Return(resources.Secrets[0], nil)
+	svc := NewInternalAppService(k8s)
+
+	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
+	require.NoError(t, err)
+	require.Len(t, response.Msg.GetModel().GetCodes(), 1)
+	assert.Equal(t, "https://gitea.example.com/aione/qwen.git", response.Msg.GetModel().GetCodes()[0].GetId())
+	assert.True(t, response.Msg.GetModel().GetCodes()[0].GetTokenConfigured())
+	assert.NotContains(t, response.Msg.String(), "git-user")
+	assert.NotContains(t, response.Msg.String(), "embedded-password")
+	k8s.AssertExpectations(t)
+}
+
 func TestUpdateModelAppPreservesIdentitySourceAndPVCWhileRedeployingRuntimeConfig(t *testing.T) {
 	input := &flyteapp.ModelAppInput{
 		Org:     "aione",
@@ -292,6 +333,8 @@ func TestUpdateModelAppPreservesIdentitySourceAndPVCWhileRedeployingRuntimeConfi
 	require.NoError(t, err)
 	existing.Spec.DesiredState = flyteapp.Spec_DESIRED_STATE_STOPPED
 	require.Len(t, existingResources.Secrets, 1)
+	existingResources.Secrets[0].Data["future-extension"] = []byte("keep-me")
+	existingResources.Secrets[0].StringData = map[string]string{"operator-note": "keep-this-too"}
 	require.Len(t, existingResources.PersistentVolumeClaims, 1)
 
 	k8s := &mockAppK8sClient{}
@@ -311,7 +354,7 @@ func TestUpdateModelAppPreservesIdentitySourceAndPVCWhileRedeployingRuntimeConfi
 		AppId:              existing.Metadata.Id,
 		Name:               "Qwen Production",
 		Image:              "registry.example.com/vllm:v2",
-		Param:              "--served-model-name\nqwen\n--max-num-seqs\n8\n--max-model-len\n8192\n--enforce-eager",
+		Param:              "--served-model-name\nqwen\n--model\n/tmp/pair-model\n--model=/tmp/equals-model\n--max-num-seqs\n8\n--max-model-len\n8192\n--enforce-eager",
 		ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "6", Memory: "20Gi", Gpu: 1, GpuKey: "nvidia.com/gpu"},
 	}))
 	require.NoError(t, err)
@@ -331,17 +374,59 @@ func TestUpdateModelAppPreservesIdentitySourceAndPVCWhileRedeployingRuntimeConfi
 	assert.Contains(t, main.Args, "8")
 	assert.Contains(t, main.Args, "--model")
 	assert.Contains(t, main.Args, "/models/qwen")
+	assert.NotContains(t, main.Args, "--model=/tmp/equals-model")
+	assert.NotContains(t, main.Args, "/tmp/pair-model")
+	assert.NotContains(t, main.Args, "/tmp/equals-model")
 	assert.Equal(t, "6", quantityString(main.Resources.Requests[corev1.ResourceCPU]))
 	assert.Equal(t, "20Gi", quantityString(main.Resources.Requests[corev1.ResourceMemory]))
 
-	require.Len(t, deployedResources.Secrets, 1)
-	assert.Equal(t, existingResources.Secrets[0].Data, deployedResources.Secrets[0].Data)
+	assert.Empty(t, deployedResources.Secrets, "update must leave the existing downloader Secret byte-for-byte untouched")
 	require.Len(t, deployedResources.PersistentVolumeClaims, 1)
 	assert.Equal(t, existingResources.PersistentVolumeClaims[0].Name, deployedResources.PersistentVolumeClaims[0].Name)
 	specJSON, err := protojson.Marshal(deployedApp.Spec)
 	require.NoError(t, err)
 	assert.NotContains(t, string(specJSON), "top-secret")
 	k8s.AssertExpectations(t)
+}
+
+func TestUpdateModelAppRejectsRequestIdentityThatDiffersFromStoredApp(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+		Codes: []*flyteapp.ModelCodeSource{{Id: "https://gitea.example.com/aione/qwen.git"}},
+	}
+	existing, _, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	requestID := &flyteapp.Identifier{Org: "other-org", Project: "proj", Domain: "dev", Name: "qwen"}
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, requestID).Return(existing, nil)
+	svc := NewInternalAppService(k8s)
+
+	_, err = svc.UpdateModelApp(context.Background(), connect.NewRequest(&flyteapp.UpdateModelAppRequest{
+		AppId: requestID, Name: "Changed", ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "4", Memory: "16Gi"},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	k8s.AssertNotCalled(t, "GetAuxSecret", mock.Anything, mock.Anything, mock.Anything)
+	k8s.AssertNotCalled(t, "RedeployWithResources", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestUpdateModelAppRejectsInvalidResourceQuantityWithoutPanicking(t *testing.T) {
+	input := &flyteapp.ModelAppInput{Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen"}
+	existing, _, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, existing.Metadata.Id).Return(existing, nil)
+	svc := NewInternalAppService(k8s)
+
+	var updateErr error
+	assert.NotPanics(t, func() {
+		_, updateErr = svc.UpdateModelApp(context.Background(), connect.NewRequest(&flyteapp.UpdateModelAppRequest{
+			AppId:              existing.Metadata.Id,
+			ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "definitely-not-a-quantity", Memory: "16Gi"},
+		}))
+	})
+	require.Error(t, updateErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(updateErr))
 }
 
 // --- Create ---
@@ -507,6 +592,67 @@ func TestCreateModelApp_BuildsSanitizedVLLMPod(t *testing.T) {
 	assert.Equal(t, "/models", main.VolumeMounts[0].MountPath)
 	assert.Equal(t, "/root/.cache/huggingface", main.VolumeMounts[1].MountPath)
 	k8s.AssertExpectations(t)
+}
+
+func TestCreateModelAppRejectsRepositoryURLCredentials(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	svc := NewInternalAppService(k8s)
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+			Codes: []*flyteapp.ModelCodeSource{{
+				Id: "https://git-user:embedded-password@gitea.example.com/aione/qwen.git", Branch: "main",
+			}},
+		},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	k8s.AssertNotCalled(t, "DeployWithResources", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestCreateModelAppRejectsInvalidResourceQuantityWithoutPanicking(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	svc := NewInternalAppService(k8s)
+
+	var createErr error
+	assert.NotPanics(t, func() {
+		_, createErr = svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+			Model: &flyteapp.ModelAppInput{
+				Project: "proj", Domain: "dev", Id: "qwen",
+				ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "4", Memory: "not-memory"},
+			},
+		}))
+	})
+	require.Error(t, createErr)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(createErr))
+	k8s.AssertNotCalled(t, "DeployWithResources", mock.Anything, mock.Anything, mock.Anything)
+}
+
+func TestGetModelAppConfigRestoresOriginalCloudStorageIDFromSpec(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+		CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{CloudStorageId: "Models@Prod", MountPath: "/data/models"}},
+	}
+	storage := &models.CloudStorage{
+		CloudStorageKey: models.CloudStorageKey{Org: "aione", Project: "proj", Domain: "dev", ID: "Models@Prod"},
+		SizeGB:          10, StorageClass: "local-path",
+	}
+	app, _, err := buildModelApp(input, []resolvedModelAppCloudStorageMount{{storage: storage, mountPath: "/data/models"}})
+	require.NoError(t, err)
+	var podSpec corev1.PodSpec
+	require.NoError(t, utils.UnmarshalStructToObj(app.Spec.GetPod().GetPodSpec(), &podSpec))
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
+	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&podSpec, nil)
+	svc := NewInternalAppService(k8s)
+
+	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
+	require.NoError(t, err)
+	require.Len(t, response.Msg.GetModel().GetCloudStorageMounts(), 1)
+	assert.Equal(t, "Models@Prod", response.Msg.GetModel().GetCloudStorageMounts()[0].GetCloudStorageId())
+	assert.Equal(t, "/data/models", response.Msg.GetModel().GetCloudStorageMounts()[0].GetMountPath())
 }
 
 func TestCreateModelApp_RejectsRelativeCloudStorageMountPath(t *testing.T) {

@@ -58,6 +58,9 @@ func (s *InternalAppService) CreateModelApp(
 	if input == nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("model input is required"))
 	}
+	if err := validateModelSourceCredentials(input.GetCodes()); err != nil {
+		return nil, connect.NewError(connect.CodeInvalidArgument, err)
+	}
 	if err := validateModelAppCloudStorageMounts(input.GetCloudStorageMounts()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -170,6 +173,9 @@ func buildModelApp(input *flyteapp.ModelAppInput, cloudStorageMounts []resolvedM
 	}
 	if modelCode == "" {
 		modelCode = appName
+	}
+	if err := validateModelResourceDefinition(input.GetResourceDefinition()); err != nil {
+		return nil, appk8s.AppAuxResources{}, err
 	}
 
 	appID := &flyteapp.Identifier{
@@ -400,6 +406,9 @@ func modelInputs(input *flyteapp.ModelAppInput, modelCode, modelPath, pvcName st
 	if sources := redactedModelSources(input, modelCode); sources != "" {
 		items = append(items, stringInput("model_sources", sources))
 	}
+	if mounts := persistedModelCloudStorageMounts(input.GetCloudStorageMounts()); mounts != "" {
+		items = append(items, stringInput("cloud_storage_mounts", mounts))
+	}
 	if cpu := strings.TrimSpace(def.GetCpu()); cpu != "" {
 		items = append(items, stringInput("cpu", cpu))
 	}
@@ -424,8 +433,9 @@ func redactedModelSources(input *flyteapp.ModelAppInput, modelCode string) strin
 	}
 	views := make([]*flyteapp.ModelCodeSourceView, 0, len(codes))
 	for _, code := range codes {
+		sanitizedID, embeddedCredentials := sanitizeRepositoryID(code.ID)
 		views = append(views, &flyteapp.ModelCodeSourceView{
-			Id: code.ID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "",
+			Id: sanitizedID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "" || embeddedCredentials,
 		})
 	}
 	raw, err := json.Marshal(views)
@@ -433,6 +443,68 @@ func redactedModelSources(input *flyteapp.ModelAppInput, modelCode string) strin
 		return ""
 	}
 	return string(raw)
+}
+
+func persistedModelCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMount) string {
+	if len(mounts) == 0 {
+		return ""
+	}
+	persisted := make([]*cloudstoragepb.CloudStorageMount, 0, len(mounts))
+	for _, mount := range mounts {
+		persisted = append(persisted, &cloudstoragepb.CloudStorageMount{
+			CloudStorageId: strings.TrimSpace(mount.GetCloudStorageId()),
+			MountPath:      normalizeModelAppCloudStorageMountPath(mount.GetMountPath()),
+		})
+	}
+	raw, err := json.Marshal(persisted)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func validateModelSourceCredentials(sources []*flyteapp.ModelCodeSource) error {
+	for _, source := range sources {
+		_, hasCredentials := sanitizeRepositoryID(source.GetId())
+		if hasCredentials {
+			return fmt.Errorf("repository URL must not contain embedded credentials; use the token field")
+		}
+	}
+	return nil
+}
+
+func sanitizeRepositoryID(id string) (string, bool) {
+	id = strings.TrimSpace(id)
+	parsed, err := url.Parse(id)
+	if err != nil || parsed.Scheme == "" {
+		return id, false
+	}
+	hasCredentials := parsed.User != nil
+	parsed.User = nil
+	query := parsed.Query()
+	for key := range query {
+		switch strings.ToLower(key) {
+		case "token", "access_token", "private_token", "password", "auth", "api_key", "apikey":
+			query.Del(key)
+			hasCredentials = true
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String(), hasCredentials
+}
+
+func validateModelResourceDefinition(def *flyteapp.ModelResourceDefinition) error {
+	if cpu := strings.TrimSpace(def.GetCpu()); cpu != "" {
+		if _, err := k8sresource.ParseQuantity(cpu); err != nil {
+			return fmt.Errorf("invalid CPU quantity %q: %w", cpu, err)
+		}
+	}
+	if memory := strings.TrimSpace(def.GetMemory()); memory != "" {
+		if _, err := k8sresource.ParseQuantity(memory); err != nil {
+			return fmt.Errorf("invalid memory quantity %q: %w", memory, err)
+		}
+	}
+	return nil
 }
 
 func stringInput(name, value string) *flyteapp.Input {

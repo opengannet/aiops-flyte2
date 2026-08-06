@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -336,6 +337,23 @@ func TestUpdateModelApp_InvalidatesCache(t *testing.T) {
 	require.NoError(t, err)
 	_, hit := svc.cache.Get(cacheKey(app.Metadata.Id))
 	assert.False(t, hit, "cache should be invalidated after UpdateModelApp")
+	internal.AssertExpectations(t)
+}
+
+func TestUpdateModelApp_InvalidatesCacheWhenInternalUpdateReturnsError(t *testing.T) {
+	internal := &mockInternalClient{}
+	svc := NewAppService(internal, 30*time.Second)
+	app := testApp()
+	svc.cache.Add(cacheKey(app.Metadata.Id), app)
+	request := connect.NewRequest(&flyteapp.UpdateModelAppRequest{AppId: app.Metadata.Id, Name: "Qwen"})
+	internal.On("UpdateModelApp", mock.Anything, request).Return(
+		(*connect.Response[flyteapp.UpdateModelAppResponse])(nil), connect.NewError(connect.CodeInternal, fmt.Errorf("materialization failed")),
+	)
+
+	_, err := svc.UpdateModelApp(context.Background(), request)
+	require.Error(t, err)
+	_, hit := svc.cache.Get(cacheKey(app.Metadata.Id))
+	assert.False(t, hit, "cache must be invalidated because the data plane may already have replaced the Deployment")
 	internal.AssertExpectations(t)
 }
 

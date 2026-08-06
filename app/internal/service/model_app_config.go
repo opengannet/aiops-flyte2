@@ -45,14 +45,14 @@ func (s *InternalAppService) GetModelAppConfig(
 		return nil, err
 	}
 	model := &flyteapp.ModelAppConfig{
-		AppId:              appID,
+		AppId:              app.GetMetadata().GetId(),
 		Name:               app.GetSpec().GetProfile().GetName(),
 		Code:               modelInputString(app, "code"),
 		Image:              container.Image,
 		Param:              strings.Join(editableModelArgs(container.Args), "\n"),
 		Codes:              codes,
 		ResourceDefinition: modelResourcesFromContainer(app, container),
-		CloudStorageMounts: modelCloudStorageMounts(podSpec, container),
+		CloudStorageMounts: persistedOrRuntimeModelCloudStorageMounts(app, podSpec, container),
 	}
 	return connect.NewResponse(&flyteapp.GetModelAppConfigResponse{Model: model}), nil
 }
@@ -72,6 +72,10 @@ func (s *InternalAppService) UpdateModelApp(
 	if !strings.EqualFold(existing.GetSpec().GetProfile().GetType(), "VLLM") {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("app %s is not a VLLM model app", appID.GetName()))
 	}
+	canonicalID := existing.GetMetadata().GetId()
+	if !sameAppIdentifier(appID, canonicalID) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("request app_id does not match stored app identity"))
+	}
 	if err := validateModelAppCloudStorageMounts(req.Msg.GetCloudStorageMounts()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
@@ -80,15 +84,20 @@ func (s *InternalAppService) UpdateModelApp(
 	if err != nil {
 		return nil, err
 	}
+	modelPath := modelInputString(existing, "model_path")
+	if modelPath != "" && len(codes) > 0 {
+		codes[0].Path = modelPath
+	}
+	editableParam := strings.Join(removeModelArgs(splitModelArgs(req.Msg.GetParam())), "\n")
 	input := &flyteapp.ModelAppInput{
-		Org:                appID.GetOrg(),
-		Project:            appID.GetProject(),
-		Domain:             appID.GetDomain(),
+		Org:                canonicalID.GetOrg(),
+		Project:            canonicalID.GetProject(),
+		Domain:             canonicalID.GetDomain(),
 		Name:               req.Msg.GetName(),
-		Id:                 appID.GetName(),
+		Id:                 canonicalID.GetName(),
 		Code:               modelInputString(existing, "code"),
 		Image:              req.Msg.GetImage(),
-		Param:              req.Msg.GetParam(),
+		Param:              editableParam,
 		Codes:              downloaderCodesToModelSources(codes),
 		ResourceDefinition: req.Msg.GetResourceDefinition(),
 		CloudStorageMounts: req.Msg.GetCloudStorageMounts(),
@@ -101,6 +110,9 @@ func (s *InternalAppService) UpdateModelApp(
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
+	// The existing downloader Secret is the immutable source of credentials and
+	// downloader extensions. Omitting it keeps all current keys byte-for-byte intact.
+	resources.Secrets = nil
 	if err := s.k8s.RedeployWithResources(ctx, updated, resources); err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -110,7 +122,7 @@ func (s *InternalAppService) UpdateModelApp(
 			return nil, connect.NewError(connect.CodeInternal, err)
 		}
 	}
-	updated.Status = &flyteapp.Status{Ingress: s.k8s.PublicIngress(appID)}
+	updated.Status = &flyteapp.Status{Ingress: s.k8s.PublicIngress(canonicalID)}
 	return connect.NewResponse(&flyteapp.UpdateModelAppResponse{App: updated}), nil
 }
 
@@ -151,13 +163,38 @@ func editableModelArgs(args []string) []string {
 	return result
 }
 
+func removeModelArgs(args []string) []string {
+	result := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--model" {
+			if i+1 < len(args) {
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(args[i], "--model=") {
+			continue
+		}
+		result = append(result, args[i])
+	}
+	return result
+}
+
+func sameAppIdentifier(left, right *flyteapp.Identifier) bool {
+	return left != nil && right != nil &&
+		left.GetOrg() == right.GetOrg() &&
+		left.GetProject() == right.GetProject() &&
+		left.GetDomain() == right.GetDomain() &&
+		left.GetName() == right.GetName()
+}
+
 func (s *InternalAppService) modelCodeSourceViews(ctx context.Context, app *flyteapp.App) ([]*flyteapp.ModelCodeSourceView, error) {
 	if persisted := modelInputString(app, "model_sources"); persisted != "" {
 		views := make([]*flyteapp.ModelCodeSourceView, 0)
 		if err := json.Unmarshal([]byte(persisted), &views); err != nil {
 			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to parse persisted model sources: %w", err))
 		}
-		return views, nil
+		return sanitizeModelCodeSourceViews(views), nil
 	}
 	codes, err := s.modelDownloaderCodes(ctx, app)
 	if err != nil {
@@ -165,11 +202,21 @@ func (s *InternalAppService) modelCodeSourceViews(ctx context.Context, app *flyt
 	}
 	views := make([]*flyteapp.ModelCodeSourceView, 0, len(codes))
 	for _, code := range codes {
+		sanitizedID, embeddedCredentials := sanitizeRepositoryID(code.ID)
 		views = append(views, &flyteapp.ModelCodeSourceView{
-			Id: code.ID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "",
+			Id: sanitizedID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "" || embeddedCredentials,
 		})
 	}
 	return views, nil
+}
+
+func sanitizeModelCodeSourceViews(views []*flyteapp.ModelCodeSourceView) []*flyteapp.ModelCodeSourceView {
+	for _, view := range views {
+		sanitizedID, embeddedCredentials := sanitizeRepositoryID(view.GetId())
+		view.Id = sanitizedID
+		view.TokenConfigured = view.GetTokenConfigured() || embeddedCredentials
+	}
+	return views
 }
 
 func (s *InternalAppService) modelDownloaderCodes(ctx context.Context, app *flyteapp.App) ([]aionedownloader.Code, error) {
@@ -246,4 +293,14 @@ func modelCloudStorageMounts(podSpec *corev1.PodSpec, container *corev1.Containe
 		result = append(result, &cloudstoragepb.CloudStorageMount{CloudStorageId: strings.TrimPrefix(claim.ClaimName, "cs-"), MountPath: mountPath})
 	}
 	return result
+}
+
+func persistedOrRuntimeModelCloudStorageMounts(app *flyteapp.App, podSpec *corev1.PodSpec, container *corev1.Container) []*cloudstoragepb.CloudStorageMount {
+	if persisted := modelInputString(app, "cloud_storage_mounts"); persisted != "" {
+		mounts := make([]*cloudstoragepb.CloudStorageMount, 0)
+		if err := json.Unmarshal([]byte(persisted), &mounts); err == nil {
+			return mounts
+		}
+	}
+	return modelCloudStorageMounts(podSpec, container)
 }
