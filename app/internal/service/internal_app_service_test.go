@@ -80,6 +80,10 @@ func (m *mockAppK8sClient) DeployWithResources(ctx context.Context, app *flyteap
 	return m.Called(ctx, app, resources).Error(0)
 }
 
+func (m *mockAppK8sClient) RedeployWithResources(ctx context.Context, app *flyteapp.App, resources appk8s.AppAuxResources) error {
+	return m.Called(ctx, app, resources).Error(0)
+}
+
 func (m *mockAppK8sClient) Stop(ctx context.Context, appID *flyteapp.Identifier) error {
 	return m.Called(ctx, appID).Error(0)
 }
@@ -94,6 +98,22 @@ func (m *mockAppK8sClient) GetApp(ctx context.Context, appID *flyteapp.Identifie
 		return nil, args.Error(1)
 	}
 	return args.Get(0).(*flyteapp.App), args.Error(1)
+}
+
+func (m *mockAppK8sClient) GetRuntimePodSpec(ctx context.Context, appID *flyteapp.Identifier) (*corev1.PodSpec, error) {
+	args := m.Called(ctx, appID)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*corev1.PodSpec), args.Error(1)
+}
+
+func (m *mockAppK8sClient) GetAuxSecret(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.Secret, error) {
+	args := m.Called(ctx, appID, name)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*corev1.Secret), args.Error(1)
 }
 
 func (m *mockAppK8sClient) List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error) {
@@ -190,6 +210,138 @@ func TestNewInternalAppService_CloudStorageRepoIsOptional(t *testing.T) {
 	repo := &fakeModelAppCloudStorageRepo{}
 	withRepo := NewInternalAppService(k8s, repo)
 	assert.Same(t, repo, withRepo.cloudStorageRepo)
+}
+
+func TestGetModelAppConfigUsesLiveCustomArgsAndRedactsRepositoryToken(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org:     "aione",
+		Project: "proj",
+		Domain:  "dev",
+		Name:    "Qwen 1.5B",
+		Id:      "qwen",
+		Code:    "qwen",
+		Image:   "vllm",
+		Param:   "--served-model-name\nqwen",
+		Codes: []*flyteapp.ModelCodeSource{{
+			Id: "https://gitea.example.com/aione/qwen.git", Branch: "main", Token: "top-secret",
+		}},
+		ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "4", Memory: "16Gi", Gpu: 1, GpuKey: "nvidia.com/gpu"},
+	}
+	app, resources, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	require.Len(t, resources.Secrets, 1)
+	legacyInputs := make([]*flyteapp.Input, 0, len(app.Spec.Inputs.Items))
+	for _, item := range app.Spec.Inputs.Items {
+		if item.GetName() != "model_sources" {
+			legacyInputs = append(legacyInputs, item)
+		}
+	}
+	app.Spec.Inputs.Items = legacyInputs
+	runtimePod := buildModelPodSpec(resolveModelImage("vllm"), []string{
+		"--served-model-name", "qwen",
+		"--model", "/models/qwen",
+		"--host", "0.0.0.0",
+		"--port", "8000",
+		"--max-num-seqs", "16",
+		"--max-model-len", "8192",
+		"--enforce-eager",
+	}, defaultVLLMPort, input.ResourceDefinition, "qwen-proj-dev-model-cache", "qwen-proj-dev-model-downloader", true)
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
+	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&runtimePod, nil)
+	k8s.On("GetAuxSecret", mock.Anything, app.Metadata.Id, "qwen-proj-dev-model-downloader").Return(resources.Secrets[0], nil)
+	svc := NewInternalAppService(k8s)
+
+	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
+	require.NoError(t, err)
+	model := response.Msg.GetModel()
+	require.NotNil(t, model)
+	assert.Equal(t, "Qwen 1.5B", model.GetName())
+	assert.Equal(t, "qwen", model.GetCode())
+	assert.Equal(t, resolveModelImage("vllm"), model.GetImage())
+	assert.Equal(t, "--served-model-name\nqwen\n--max-num-seqs\n16\n--max-model-len\n8192\n--enforce-eager", model.GetParam())
+	require.Len(t, model.GetCodes(), 1)
+	assert.Equal(t, "https://gitea.example.com/aione/qwen.git", model.GetCodes()[0].GetId())
+	assert.Equal(t, "main", model.GetCodes()[0].GetBranch())
+	assert.Equal(t, "/models/qwen", model.GetCodes()[0].GetPath())
+	assert.True(t, model.GetCodes()[0].GetTokenConfigured())
+	assert.NotContains(t, model.String(), "top-secret")
+	assert.Equal(t, "4", model.GetResourceDefinition().GetCpu())
+	assert.Equal(t, "16Gi", model.GetResourceDefinition().GetMemory())
+	assert.Equal(t, uint32(1), model.GetResourceDefinition().GetGpu())
+	k8s.AssertExpectations(t)
+}
+
+func TestUpdateModelAppPreservesIdentitySourceAndPVCWhileRedeployingRuntimeConfig(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org:     "aione",
+		Project: "proj",
+		Domain:  "dev",
+		Name:    "Qwen 1.5B",
+		Id:      "qwen",
+		Code:    "qwen",
+		Image:   "vllm",
+		Param:   "--served-model-name\nqwen",
+		Codes: []*flyteapp.ModelCodeSource{{
+			Id: "https://gitea.example.com/aione/qwen.git", Branch: "main", Token: "top-secret",
+		}},
+		ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "4", Memory: "16Gi", Gpu: 1, GpuKey: "nvidia.com/gpu"},
+	}
+	existing, existingResources, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	existing.Spec.DesiredState = flyteapp.Spec_DESIRED_STATE_STOPPED
+	require.Len(t, existingResources.Secrets, 1)
+	require.Len(t, existingResources.PersistentVolumeClaims, 1)
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, existing.Metadata.Id).Return(existing, nil)
+	k8s.On("GetAuxSecret", mock.Anything, existing.Metadata.Id, "qwen-proj-dev-model-downloader").Return(existingResources.Secrets[0], nil)
+	ingress := &flyteapp.Ingress{PublicUrl: "https://qwen-proj-dev.ops.fzyun.io"}
+	k8s.On("PublicIngress", existing.Metadata.Id).Return(ingress)
+	var deployedApp *flyteapp.App
+	var deployedResources appk8s.AppAuxResources
+	k8s.On("RedeployWithResources", mock.Anything, mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
+		deployedApp = args.Get(1).(*flyteapp.App)
+		deployedResources = args.Get(2).(appk8s.AppAuxResources)
+	}).Return(nil)
+	svc := NewInternalAppService(k8s)
+
+	response, err := svc.UpdateModelApp(context.Background(), connect.NewRequest(&flyteapp.UpdateModelAppRequest{
+		AppId:              existing.Metadata.Id,
+		Name:               "Qwen Production",
+		Image:              "registry.example.com/vllm:v2",
+		Param:              "--served-model-name\nqwen\n--max-num-seqs\n8\n--max-model-len\n8192\n--enforce-eager",
+		ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "6", Memory: "20Gi", Gpu: 1, GpuKey: "nvidia.com/gpu"},
+	}))
+	require.NoError(t, err)
+	require.NotNil(t, deployedApp)
+	assert.Equal(t, "qwen", deployedApp.Metadata.Id.Name)
+	assert.Equal(t, "Qwen Production", deployedApp.Spec.Profile.Name)
+	assert.Equal(t, flyteapp.Spec_DESIRED_STATE_ACTIVE, deployedApp.Spec.DesiredState)
+	assert.Equal(t, ingress.PublicUrl, response.Msg.App.Status.Ingress.PublicUrl)
+	assert.Equal(t, "qwen", modelInputString(deployedApp, "code"))
+	assert.Equal(t, existingResources.PersistentVolumeClaims[0].Name, modelInputString(deployedApp, "model_cache_pvc"))
+
+	var podSpec corev1.PodSpec
+	require.NoError(t, utils.UnmarshalStructToObj(deployedApp.Spec.GetPod().GetPodSpec(), &podSpec))
+	main := podSpec.Containers[0]
+	assert.Equal(t, "registry.example.com/vllm:v2", main.Image)
+	assert.Contains(t, main.Args, "--max-num-seqs")
+	assert.Contains(t, main.Args, "8")
+	assert.Contains(t, main.Args, "--model")
+	assert.Contains(t, main.Args, "/models/qwen")
+	assert.Equal(t, "6", quantityString(main.Resources.Requests[corev1.ResourceCPU]))
+	assert.Equal(t, "20Gi", quantityString(main.Resources.Requests[corev1.ResourceMemory]))
+
+	require.Len(t, deployedResources.Secrets, 1)
+	assert.Equal(t, existingResources.Secrets[0].Data, deployedResources.Secrets[0].Data)
+	require.Len(t, deployedResources.PersistentVolumeClaims, 1)
+	assert.Equal(t, existingResources.PersistentVolumeClaims[0].Name, deployedResources.PersistentVolumeClaims[0].Name)
+	specJSON, err := protojson.Marshal(deployedApp.Spec)
+	require.NoError(t, err)
+	assert.NotContains(t, string(specJSON), "top-secret")
+	k8s.AssertExpectations(t)
 }
 
 // --- Create ---

@@ -14,6 +14,14 @@ service AppService {
   // CreateModelApp creates a VLLM/OpenAI-compatible model app.
   rpc CreateModelApp(CreateModelAppRequest) returns (CreateResponse) {}
 
+  // GetModelAppConfig retrieves the redacted editable configuration for a model app.
+  rpc GetModelAppConfig(GetModelAppConfigRequest) returns (GetModelAppConfigResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+
+  // UpdateModelApp updates editable model-app fields and restarts the app.
+  rpc UpdateModelApp(UpdateModelAppRequest) returns (UpdateModelAppResponse) {}
+
   // Get retrieves an app by its identifier.
   rpc Get(GetRequest) returns (GetResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;

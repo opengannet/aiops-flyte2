@@ -4,14 +4,14 @@
 
 import type { GenFile, GenService } from "@bufbuild/protobuf/codegenv1";
 import { fileDesc, serviceDesc } from "@bufbuild/protobuf/codegenv1";
-import type { CreateModelAppRequestSchema, CreateRequestSchema, CreateResponseSchema, DeleteRequestSchema, DeleteResponseSchema, GetRequestSchema, GetResponseSchema, LeaseRequestSchema, LeaseResponseSchema, ListRequestSchema, ListResponseSchema, UpdateRequestSchema, UpdateResponseSchema, UpdateStatusRequestSchema, UpdateStatusResponseSchema, WatchRequestSchema, WatchResponseSchema } from "./app_payload_pb.ts";
+import type { CreateModelAppRequestSchema, CreateRequestSchema, CreateResponseSchema, DeleteRequestSchema, DeleteResponseSchema, GetModelAppConfigRequestSchema, GetModelAppConfigResponseSchema, GetRequestSchema, GetResponseSchema, LeaseRequestSchema, LeaseResponseSchema, ListRequestSchema, ListResponseSchema, UpdateModelAppRequestSchema, UpdateModelAppResponseSchema, UpdateRequestSchema, UpdateResponseSchema, UpdateStatusRequestSchema, UpdateStatusResponseSchema, WatchRequestSchema, WatchResponseSchema } from "./app_payload_pb.ts";
 import { file_flyteidl2_app_app_payload } from "./app_payload_pb.ts";
 
 /**
  * Describes the file flyteidl2/app/app_service.proto.
  */
 export const file_flyteidl2_app_app_service: GenFile = /*@__PURE__*/
-  fileDesc("Ch9mbHl0ZWlkbDIvYXBwL2FwcF9zZXJ2aWNlLnByb3RvEg1mbHl0ZWlkbDIuYXBwMrcFCgpBcHBTZXJ2aWNlEkcKBkNyZWF0ZRIcLmZseXRlaWRsMi5hcHAuQ3JlYXRlUmVxdWVzdBodLmZseXRlaWRsMi5hcHAuQ3JlYXRlUmVzcG9uc2UiABJXCg5DcmVhdGVNb2RlbEFwcBIkLmZseXRlaWRsMi5hcHAuQ3JlYXRlTW9kZWxBcHBSZXF1ZXN0Gh0uZmx5dGVpZGwyLmFwcC5DcmVhdGVSZXNwb25zZSIAEkEKA0dldBIZLmZseXRlaWRsMi5hcHAuR2V0UmVxdWVzdBoaLmZseXRlaWRsMi5hcHAuR2V0UmVzcG9uc2UiA5ACARJHCgZVcGRhdGUSHC5mbHl0ZWlkbDIuYXBwLlVwZGF0ZVJlcXVlc3QaHS5mbHl0ZWlkbDIuYXBwLlVwZGF0ZVJlc3BvbnNlIgASWQoMVXBkYXRlU3RhdHVzEiIuZmx5dGVpZGwyLmFwcC5VcGRhdGVTdGF0dXNSZXF1ZXN0GiMuZmx5dGVpZGwyLmFwcC5VcGRhdGVTdGF0dXNSZXNwb25zZSIAEkcKBkRlbGV0ZRIcLmZseXRlaWRsMi5hcHAuRGVsZXRlUmVxdWVzdBodLmZseXRlaWRsMi5hcHAuRGVsZXRlUmVzcG9uc2UiABJECgRMaXN0EhouZmx5dGVpZGwyLmFwcC5MaXN0UmVxdWVzdBobLmZseXRlaWRsMi5hcHAuTGlzdFJlc3BvbnNlIgOQAgESSQoFV2F0Y2gSGy5mbHl0ZWlkbDIuYXBwLldhdGNoUmVxdWVzdBocLmZseXRlaWRsMi5hcHAuV2F0Y2hSZXNwb25zZSIDkAIBMAESRgoFTGVhc2USGy5mbHl0ZWlkbDIuYXBwLkxlYXNlUmVxdWVzdBocLmZseXRlaWRsMi5hcHAuTGVhc2VSZXNwb25zZSIAMAFCrgEKEWNvbS5mbHl0ZWlkbDIuYXBwQg9BcHBTZXJ2aWNlUHJvdG9IAlABWjFnaXRodWIuY29tL2ZseXRlb3JnL2ZseXRlL3YyL2dlbi9nby9mbHl0ZWlkbDIvYXBwogIDRkFYqgINRmx5dGVpZGwyLkFwcMoCDUZseXRlaWRsMlxBcHDiAhlGbHl0ZWlkbDJcQXBwXEdQQk1ldGFkYXRh6gIORmx5dGVpZGwyOjpBcHBiBnByb3RvMw", [file_flyteidl2_app_app_payload]);
+  fileDesc("Ch9mbHl0ZWlkbDIvYXBwL2FwcF9zZXJ2aWNlLnByb3RvEg1mbHl0ZWlkbDIuYXBwMoUHCgpBcHBTZXJ2aWNlEkcKBkNyZWF0ZRIcLmZseXRlaWRsMi5hcHAuQ3JlYXRlUmVxdWVzdBodLmZseXRlaWRsMi5hcHAuQ3JlYXRlUmVzcG9uc2UiABJXCg5DcmVhdGVNb2RlbEFwcBIkLmZseXRlaWRsMi5hcHAuQ3JlYXRlTW9kZWxBcHBSZXF1ZXN0Gh0uZmx5dGVpZGwyLmFwcC5DcmVhdGVSZXNwb25zZSIAEmsKEUdldE1vZGVsQXBwQ29uZmlnEicuZmx5dGVpZGwyLmFwcC5HZXRNb2RlbEFwcENvbmZpZ1JlcXVlc3QaKC5mbHl0ZWlkbDIuYXBwLkdldE1vZGVsQXBwQ29uZmlnUmVzcG9uc2UiA5ACARJfCg5VcGRhdGVNb2RlbEFwcBIkLmZseXRlaWRsMi5hcHAuVXBkYXRlTW9kZWxBcHBSZXF1ZXN0GiUuZmx5dGVpZGwyLmFwcC5VcGRhdGVNb2RlbEFwcFJlc3BvbnNlIgASQQoDR2V0EhkuZmx5dGVpZGwyLmFwcC5HZXRSZXF1ZXN0GhouZmx5dGVpZGwyLmFwcC5HZXRSZXNwb25zZSIDkAIBEkcKBlVwZGF0ZRIcLmZseXRlaWRsMi5hcHAuVXBkYXRlUmVxdWVzdBodLmZseXRlaWRsMi5hcHAuVXBkYXRlUmVzcG9uc2UiABJZCgxVcGRhdGVTdGF0dXMSIi5mbHl0ZWlkbDIuYXBwLlVwZGF0ZVN0YXR1c1JlcXVlc3QaIy5mbHl0ZWlkbDIuYXBwLlVwZGF0ZVN0YXR1c1Jlc3BvbnNlIgASRwoGRGVsZXRlEhwuZmx5dGVpZGwyLmFwcC5EZWxldGVSZXF1ZXN0Gh0uZmx5dGVpZGwyLmFwcC5EZWxldGVSZXNwb25zZSIAEkQKBExpc3QSGi5mbHl0ZWlkbDIuYXBwLkxpc3RSZXF1ZXN0GhsuZmx5dGVpZGwyLmFwcC5MaXN0UmVzcG9uc2UiA5ACARJJCgVXYXRjaBIbLmZseXRlaWRsMi5hcHAuV2F0Y2hSZXF1ZXN0GhwuZmx5dGVpZGwyLmFwcC5XYXRjaFJlc3BvbnNlIgOQAgEwARJGCgVMZWFzZRIbLmZseXRlaWRsMi5hcHAuTGVhc2VSZXF1ZXN0GhwuZmx5dGVpZGwyLmFwcC5MZWFzZVJlc3BvbnNlIgAwAUKuAQoRY29tLmZseXRlaWRsMi5hcHBCD0FwcFNlcnZpY2VQcm90b0gCUAFaMWdpdGh1Yi5jb20vZmx5dGVvcmcvZmx5dGUvdjIvZ2VuL2dvL2ZseXRlaWRsMi9hcHCiAgNGQViqAg1GbHl0ZWlkbDIuQXBwygINRmx5dGVpZGwyXEFwcOICGUZseXRlaWRsMlxBcHBcR1BCTWV0YWRhdGHqAg5GbHl0ZWlkbDI6OkFwcGIGcHJvdG8z", [file_flyteidl2_app_app_payload]);
 
 /**
  * AppService defines the service for managing apps.
@@ -38,6 +38,26 @@ export const AppService: GenService<{
     methodKind: "unary";
     input: typeof CreateModelAppRequestSchema;
     output: typeof CreateResponseSchema;
+  },
+  /**
+   * GetModelAppConfig retrieves the redacted editable configuration for a model app.
+   *
+   * @generated from rpc flyteidl2.app.AppService.GetModelAppConfig
+   */
+  getModelAppConfig: {
+    methodKind: "unary";
+    input: typeof GetModelAppConfigRequestSchema;
+    output: typeof GetModelAppConfigResponseSchema;
+  },
+  /**
+   * UpdateModelApp updates editable model-app fields and restarts the app.
+   *
+   * @generated from rpc flyteidl2.app.AppService.UpdateModelApp
+   */
+  updateModelApp: {
+    methodKind: "unary";
+    input: typeof UpdateModelAppRequestSchema;
+    output: typeof UpdateModelAppResponseSchema;
   },
   /**
    * Get retrieves an app by its identifier.

@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -397,6 +397,9 @@ func modelInputs(input *flyteapp.ModelAppInput, modelCode, modelPath, pvcName st
 	if modelPath != "" {
 		items = append(items, stringInput("model_path", modelPath))
 	}
+	if sources := redactedModelSources(input, modelCode); sources != "" {
+		items = append(items, stringInput("model_sources", sources))
+	}
 	if cpu := strings.TrimSpace(def.GetCpu()); cpu != "" {
 		items = append(items, stringInput("cpu", cpu))
 	}
@@ -412,6 +415,24 @@ func modelInputs(input *flyteapp.ModelAppInput, modelCode, modelPath, pvcName st
 		items = append(items, stringInput("gpu_key", key))
 	}
 	return &flyteapp.InputList{Items: items}
+}
+
+func redactedModelSources(input *flyteapp.ModelAppInput, modelCode string) string {
+	_, codes := modelDownloadCodes(input, modelCode)
+	if len(codes) == 0 {
+		return ""
+	}
+	views := make([]*flyteapp.ModelCodeSourceView, 0, len(codes))
+	for _, code := range codes {
+		views = append(views, &flyteapp.ModelCodeSourceView{
+			Id: code.ID, Branch: code.Branch, Path: code.Path, TokenConfigured: code.Token != "",
+		})
+	}
+	raw, err := json.Marshal(views)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func stringInput(name, value string) *flyteapp.Input {

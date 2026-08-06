@@ -38,6 +38,22 @@ func (m *mockInternalClient) CreateModelApp(ctx context.Context, req *connect.Re
 	return args.Get(0).(*connect.Response[flyteapp.CreateResponse]), args.Error(1)
 }
 
+func (m *mockInternalClient) GetModelAppConfig(ctx context.Context, req *connect.Request[flyteapp.GetModelAppConfigRequest]) (*connect.Response[flyteapp.GetModelAppConfigResponse], error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*connect.Response[flyteapp.GetModelAppConfigResponse]), args.Error(1)
+}
+
+func (m *mockInternalClient) UpdateModelApp(ctx context.Context, req *connect.Request[flyteapp.UpdateModelAppRequest]) (*connect.Response[flyteapp.UpdateModelAppResponse], error) {
+	args := m.Called(ctx, req)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*connect.Response[flyteapp.UpdateModelAppResponse]), args.Error(1)
+}
+
 func (m *mockInternalClient) Get(ctx context.Context, req *connect.Request[flyteapp.GetRequest]) (*connect.Response[flyteapp.GetResponse], error) {
 	args := m.Called(ctx, req)
 	if args.Get(0) == nil {
@@ -290,6 +306,36 @@ func TestCreateModelApp_InvalidatesCache(t *testing.T) {
 	require.NoError(t, err)
 	_, hit := svc.cache.Get(cacheKey(app.Metadata.Id))
 	assert.False(t, hit, "cache should be invalidated after CreateModelApp")
+	internal.AssertExpectations(t)
+}
+
+func TestGetModelAppConfig_ForwardsToInternalService(t *testing.T) {
+	internal := &mockInternalClient{}
+	svc := NewAppService(internal, 30*time.Second)
+	request := connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: testAppID()})
+	expected := connect.NewResponse(&flyteapp.GetModelAppConfigResponse{Model: &flyteapp.ModelAppConfig{AppId: testAppID(), Name: "Qwen"}})
+	internal.On("GetModelAppConfig", mock.Anything, request).Return(expected, nil)
+
+	response, err := svc.GetModelAppConfig(context.Background(), request)
+	require.NoError(t, err)
+	assert.Equal(t, "Qwen", response.Msg.GetModel().GetName())
+	internal.AssertExpectations(t)
+}
+
+func TestUpdateModelApp_InvalidatesCache(t *testing.T) {
+	internal := &mockInternalClient{}
+	svc := NewAppService(internal, 30*time.Second)
+	app := testApp()
+	svc.cache.Add(cacheKey(app.Metadata.Id), app)
+	request := connect.NewRequest(&flyteapp.UpdateModelAppRequest{AppId: app.Metadata.Id, Name: "Qwen"})
+	internal.On("UpdateModelApp", mock.Anything, request).Return(
+		connect.NewResponse(&flyteapp.UpdateModelAppResponse{App: app}), nil,
+	)
+
+	_, err := svc.UpdateModelApp(context.Background(), request)
+	require.NoError(t, err)
+	_, hit := svc.cache.Get(cacheKey(app.Metadata.Id))
+	assert.False(t, hit, "cache should be invalidated after UpdateModelApp")
 	internal.AssertExpectations(t)
 }
 

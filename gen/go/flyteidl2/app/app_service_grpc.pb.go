@@ -19,15 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	AppService_Create_FullMethodName         = "/flyteidl2.app.AppService/Create"
-	AppService_CreateModelApp_FullMethodName = "/flyteidl2.app.AppService/CreateModelApp"
-	AppService_Get_FullMethodName            = "/flyteidl2.app.AppService/Get"
-	AppService_Update_FullMethodName         = "/flyteidl2.app.AppService/Update"
-	AppService_UpdateStatus_FullMethodName   = "/flyteidl2.app.AppService/UpdateStatus"
-	AppService_Delete_FullMethodName         = "/flyteidl2.app.AppService/Delete"
-	AppService_List_FullMethodName           = "/flyteidl2.app.AppService/List"
-	AppService_Watch_FullMethodName          = "/flyteidl2.app.AppService/Watch"
-	AppService_Lease_FullMethodName          = "/flyteidl2.app.AppService/Lease"
+	AppService_Create_FullMethodName            = "/flyteidl2.app.AppService/Create"
+	AppService_CreateModelApp_FullMethodName    = "/flyteidl2.app.AppService/CreateModelApp"
+	AppService_GetModelAppConfig_FullMethodName = "/flyteidl2.app.AppService/GetModelAppConfig"
+	AppService_UpdateModelApp_FullMethodName    = "/flyteidl2.app.AppService/UpdateModelApp"
+	AppService_Get_FullMethodName               = "/flyteidl2.app.AppService/Get"
+	AppService_Update_FullMethodName            = "/flyteidl2.app.AppService/Update"
+	AppService_UpdateStatus_FullMethodName      = "/flyteidl2.app.AppService/UpdateStatus"
+	AppService_Delete_FullMethodName            = "/flyteidl2.app.AppService/Delete"
+	AppService_List_FullMethodName              = "/flyteidl2.app.AppService/List"
+	AppService_Watch_FullMethodName             = "/flyteidl2.app.AppService/Watch"
+	AppService_Lease_FullMethodName             = "/flyteidl2.app.AppService/Lease"
 )
 
 // AppServiceClient is the client API for AppService service.
@@ -38,6 +40,10 @@ type AppServiceClient interface {
 	Create(ctx context.Context, in *CreateRequest, opts ...grpc.CallOption) (*CreateResponse, error)
 	// CreateModelApp creates a VLLM/OpenAI-compatible model app.
 	CreateModelApp(ctx context.Context, in *CreateModelAppRequest, opts ...grpc.CallOption) (*CreateResponse, error)
+	// GetModelAppConfig retrieves the redacted editable configuration for a model app.
+	GetModelAppConfig(ctx context.Context, in *GetModelAppConfigRequest, opts ...grpc.CallOption) (*GetModelAppConfigResponse, error)
+	// UpdateModelApp updates editable model-app fields and restarts the app.
+	UpdateModelApp(ctx context.Context, in *UpdateModelAppRequest, opts ...grpc.CallOption) (*UpdateModelAppResponse, error)
 	// Get retrieves an app by its identifier.
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
 	// Update updates an existing app.
@@ -74,6 +80,24 @@ func (c *appServiceClient) Create(ctx context.Context, in *CreateRequest, opts .
 func (c *appServiceClient) CreateModelApp(ctx context.Context, in *CreateModelAppRequest, opts ...grpc.CallOption) (*CreateResponse, error) {
 	out := new(CreateResponse)
 	err := c.cc.Invoke(ctx, AppService_CreateModelApp_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *appServiceClient) GetModelAppConfig(ctx context.Context, in *GetModelAppConfigRequest, opts ...grpc.CallOption) (*GetModelAppConfigResponse, error) {
+	out := new(GetModelAppConfigResponse)
+	err := c.cc.Invoke(ctx, AppService_GetModelAppConfig_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *appServiceClient) UpdateModelApp(ctx context.Context, in *UpdateModelAppRequest, opts ...grpc.CallOption) (*UpdateModelAppResponse, error) {
+	out := new(UpdateModelAppResponse)
+	err := c.cc.Invoke(ctx, AppService_UpdateModelApp_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -197,6 +221,10 @@ type AppServiceServer interface {
 	Create(context.Context, *CreateRequest) (*CreateResponse, error)
 	// CreateModelApp creates a VLLM/OpenAI-compatible model app.
 	CreateModelApp(context.Context, *CreateModelAppRequest) (*CreateResponse, error)
+	// GetModelAppConfig retrieves the redacted editable configuration for a model app.
+	GetModelAppConfig(context.Context, *GetModelAppConfigRequest) (*GetModelAppConfigResponse, error)
+	// UpdateModelApp updates editable model-app fields and restarts the app.
+	UpdateModelApp(context.Context, *UpdateModelAppRequest) (*UpdateModelAppResponse, error)
 	// Get retrieves an app by its identifier.
 	Get(context.Context, *GetRequest) (*GetResponse, error)
 	// Update updates an existing app.
@@ -222,6 +250,12 @@ func (UnimplementedAppServiceServer) Create(context.Context, *CreateRequest) (*C
 }
 func (UnimplementedAppServiceServer) CreateModelApp(context.Context, *CreateModelAppRequest) (*CreateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateModelApp not implemented")
+}
+func (UnimplementedAppServiceServer) GetModelAppConfig(context.Context, *GetModelAppConfigRequest) (*GetModelAppConfigResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetModelAppConfig not implemented")
+}
+func (UnimplementedAppServiceServer) UpdateModelApp(context.Context, *UpdateModelAppRequest) (*UpdateModelAppResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateModelApp not implemented")
 }
 func (UnimplementedAppServiceServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
@@ -288,6 +322,42 @@ func _AppService_CreateModelApp_Handler(srv interface{}, ctx context.Context, de
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AppServiceServer).CreateModelApp(ctx, req.(*CreateModelAppRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AppService_GetModelAppConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetModelAppConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AppServiceServer).GetModelAppConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AppService_GetModelAppConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AppServiceServer).GetModelAppConfig(ctx, req.(*GetModelAppConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AppService_UpdateModelApp_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateModelAppRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AppServiceServer).UpdateModelApp(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AppService_UpdateModelApp_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AppServiceServer).UpdateModelApp(ctx, req.(*UpdateModelAppRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -438,6 +508,14 @@ var AppService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateModelApp",
 			Handler:    _AppService_CreateModelApp_Handler,
+		},
+		{
+			MethodName: "GetModelAppConfig",
+			Handler:    _AppService_GetModelAppConfig_Handler,
+		},
+		{
+			MethodName: "UpdateModelApp",
+			Handler:    _AppService_UpdateModelApp_Handler,
 		},
 		{
 			MethodName: "Get",
