@@ -396,6 +396,40 @@ func (m *ModelAppInput) validate(all bool) error {
 		}
 	}
 
+	for idx, item := range m.GetCloudStorageMounts() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ModelAppInputValidationError{
+						field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ModelAppInputValidationError{
+						field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ModelAppInputValidationError{
+					field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return ModelAppInputMultiError(errors)
 	}
@@ -691,6 +725,945 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = ModelResourceDefinitionValidationError{}
+
+// Validate checks the field values on ModelCodeSourceView with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ModelCodeSourceView) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ModelCodeSourceView with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ModelCodeSourceViewMultiError, or nil if none found.
+func (m *ModelCodeSourceView) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ModelCodeSourceView) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Id
+
+	// no validation rules for Branch
+
+	// no validation rules for Path
+
+	// no validation rules for TokenConfigured
+
+	if len(errors) > 0 {
+		return ModelCodeSourceViewMultiError(errors)
+	}
+
+	return nil
+}
+
+// ModelCodeSourceViewMultiError is an error wrapping multiple validation
+// errors returned by ModelCodeSourceView.ValidateAll() if the designated
+// constraints aren't met.
+type ModelCodeSourceViewMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ModelCodeSourceViewMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ModelCodeSourceViewMultiError) AllErrors() []error { return m }
+
+// ModelCodeSourceViewValidationError is the validation error returned by
+// ModelCodeSourceView.Validate if the designated constraints aren't met.
+type ModelCodeSourceViewValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ModelCodeSourceViewValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ModelCodeSourceViewValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ModelCodeSourceViewValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ModelCodeSourceViewValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ModelCodeSourceViewValidationError) ErrorName() string {
+	return "ModelCodeSourceViewValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ModelCodeSourceViewValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sModelCodeSourceView.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ModelCodeSourceViewValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ModelCodeSourceViewValidationError{}
+
+// Validate checks the field values on ModelAppConfig with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *ModelAppConfig) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ModelAppConfig with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in ModelAppConfigMultiError,
+// or nil if none found.
+func (m *ModelAppConfig) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ModelAppConfig) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetAppId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ModelAppConfigValidationError{
+					field:  "AppId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ModelAppConfigValidationError{
+					field:  "AppId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetAppId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ModelAppConfigValidationError{
+				field:  "AppId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for Name
+
+	// no validation rules for Code
+
+	// no validation rules for Image
+
+	// no validation rules for Param
+
+	for idx, item := range m.GetCodes() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ModelAppConfigValidationError{
+						field:  fmt.Sprintf("Codes[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ModelAppConfigValidationError{
+						field:  fmt.Sprintf("Codes[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ModelAppConfigValidationError{
+					field:  fmt.Sprintf("Codes[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if all {
+		switch v := interface{}(m.GetResourceDefinition()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ModelAppConfigValidationError{
+					field:  "ResourceDefinition",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ModelAppConfigValidationError{
+					field:  "ResourceDefinition",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResourceDefinition()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ModelAppConfigValidationError{
+				field:  "ResourceDefinition",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	for idx, item := range m.GetCloudStorageMounts() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ModelAppConfigValidationError{
+						field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ModelAppConfigValidationError{
+						field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ModelAppConfigValidationError{
+					field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return ModelAppConfigMultiError(errors)
+	}
+
+	return nil
+}
+
+// ModelAppConfigMultiError is an error wrapping multiple validation errors
+// returned by ModelAppConfig.ValidateAll() if the designated constraints
+// aren't met.
+type ModelAppConfigMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ModelAppConfigMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ModelAppConfigMultiError) AllErrors() []error { return m }
+
+// ModelAppConfigValidationError is the validation error returned by
+// ModelAppConfig.Validate if the designated constraints aren't met.
+type ModelAppConfigValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ModelAppConfigValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ModelAppConfigValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ModelAppConfigValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ModelAppConfigValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ModelAppConfigValidationError) ErrorName() string { return "ModelAppConfigValidationError" }
+
+// Error satisfies the builtin error interface
+func (e ModelAppConfigValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sModelAppConfig.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ModelAppConfigValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ModelAppConfigValidationError{}
+
+// Validate checks the field values on GetModelAppConfigRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetModelAppConfigRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetModelAppConfigRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GetModelAppConfigRequestMultiError, or nil if none found.
+func (m *GetModelAppConfigRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetModelAppConfigRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetAppId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, GetModelAppConfigRequestValidationError{
+					field:  "AppId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, GetModelAppConfigRequestValidationError{
+					field:  "AppId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetAppId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return GetModelAppConfigRequestValidationError{
+				field:  "AppId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return GetModelAppConfigRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetModelAppConfigRequestMultiError is an error wrapping multiple validation
+// errors returned by GetModelAppConfigRequest.ValidateAll() if the designated
+// constraints aren't met.
+type GetModelAppConfigRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetModelAppConfigRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetModelAppConfigRequestMultiError) AllErrors() []error { return m }
+
+// GetModelAppConfigRequestValidationError is the validation error returned by
+// GetModelAppConfigRequest.Validate if the designated constraints aren't met.
+type GetModelAppConfigRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetModelAppConfigRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetModelAppConfigRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetModelAppConfigRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetModelAppConfigRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetModelAppConfigRequestValidationError) ErrorName() string {
+	return "GetModelAppConfigRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetModelAppConfigRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetModelAppConfigRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetModelAppConfigRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetModelAppConfigRequestValidationError{}
+
+// Validate checks the field values on GetModelAppConfigResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetModelAppConfigResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetModelAppConfigResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GetModelAppConfigResponseMultiError, or nil if none found.
+func (m *GetModelAppConfigResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetModelAppConfigResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetModel()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, GetModelAppConfigResponseValidationError{
+					field:  "Model",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, GetModelAppConfigResponseValidationError{
+					field:  "Model",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetModel()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return GetModelAppConfigResponseValidationError{
+				field:  "Model",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return GetModelAppConfigResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetModelAppConfigResponseMultiError is an error wrapping multiple validation
+// errors returned by GetModelAppConfigResponse.ValidateAll() if the
+// designated constraints aren't met.
+type GetModelAppConfigResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetModelAppConfigResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetModelAppConfigResponseMultiError) AllErrors() []error { return m }
+
+// GetModelAppConfigResponseValidationError is the validation error returned by
+// GetModelAppConfigResponse.Validate if the designated constraints aren't met.
+type GetModelAppConfigResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetModelAppConfigResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetModelAppConfigResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetModelAppConfigResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetModelAppConfigResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetModelAppConfigResponseValidationError) ErrorName() string {
+	return "GetModelAppConfigResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetModelAppConfigResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetModelAppConfigResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetModelAppConfigResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetModelAppConfigResponseValidationError{}
+
+// Validate checks the field values on UpdateModelAppRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *UpdateModelAppRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on UpdateModelAppRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// UpdateModelAppRequestMultiError, or nil if none found.
+func (m *UpdateModelAppRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UpdateModelAppRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetAppId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, UpdateModelAppRequestValidationError{
+					field:  "AppId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, UpdateModelAppRequestValidationError{
+					field:  "AppId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetAppId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return UpdateModelAppRequestValidationError{
+				field:  "AppId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for Name
+
+	// no validation rules for Image
+
+	// no validation rules for Param
+
+	if all {
+		switch v := interface{}(m.GetResourceDefinition()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, UpdateModelAppRequestValidationError{
+					field:  "ResourceDefinition",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, UpdateModelAppRequestValidationError{
+					field:  "ResourceDefinition",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResourceDefinition()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return UpdateModelAppRequestValidationError{
+				field:  "ResourceDefinition",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	for idx, item := range m.GetCloudStorageMounts() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, UpdateModelAppRequestValidationError{
+						field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, UpdateModelAppRequestValidationError{
+						field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return UpdateModelAppRequestValidationError{
+					field:  fmt.Sprintf("CloudStorageMounts[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	// no validation rules for Reason
+
+	if len(errors) > 0 {
+		return UpdateModelAppRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// UpdateModelAppRequestMultiError is an error wrapping multiple validation
+// errors returned by UpdateModelAppRequest.ValidateAll() if the designated
+// constraints aren't met.
+type UpdateModelAppRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UpdateModelAppRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UpdateModelAppRequestMultiError) AllErrors() []error { return m }
+
+// UpdateModelAppRequestValidationError is the validation error returned by
+// UpdateModelAppRequest.Validate if the designated constraints aren't met.
+type UpdateModelAppRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UpdateModelAppRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UpdateModelAppRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UpdateModelAppRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UpdateModelAppRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UpdateModelAppRequestValidationError) ErrorName() string {
+	return "UpdateModelAppRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UpdateModelAppRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUpdateModelAppRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UpdateModelAppRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UpdateModelAppRequestValidationError{}
+
+// Validate checks the field values on UpdateModelAppResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *UpdateModelAppResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on UpdateModelAppResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// UpdateModelAppResponseMultiError, or nil if none found.
+func (m *UpdateModelAppResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UpdateModelAppResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetApp()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, UpdateModelAppResponseValidationError{
+					field:  "App",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, UpdateModelAppResponseValidationError{
+					field:  "App",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetApp()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return UpdateModelAppResponseValidationError{
+				field:  "App",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return UpdateModelAppResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// UpdateModelAppResponseMultiError is an error wrapping multiple validation
+// errors returned by UpdateModelAppResponse.ValidateAll() if the designated
+// constraints aren't met.
+type UpdateModelAppResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UpdateModelAppResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UpdateModelAppResponseMultiError) AllErrors() []error { return m }
+
+// UpdateModelAppResponseValidationError is the validation error returned by
+// UpdateModelAppResponse.Validate if the designated constraints aren't met.
+type UpdateModelAppResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UpdateModelAppResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UpdateModelAppResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UpdateModelAppResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UpdateModelAppResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UpdateModelAppResponseValidationError) ErrorName() string {
+	return "UpdateModelAppResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UpdateModelAppResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUpdateModelAppResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UpdateModelAppResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UpdateModelAppResponseValidationError{}
 
 // Validate checks the field values on CreateResponse with the rules defined in
 // the proto definition for this message. If any rules are violated, the first

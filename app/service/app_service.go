@@ -70,6 +70,31 @@ func (s *AppService) CreateModelApp(
 	return resp, nil
 }
 
+// GetModelAppConfig forwards the redacted model edit configuration request.
+func (s *AppService) GetModelAppConfig(
+	ctx context.Context,
+	req *connect.Request[flyteapp.GetModelAppConfigRequest],
+) (*connect.Response[flyteapp.GetModelAppConfigResponse], error) {
+	return s.internalClient.GetModelAppConfig(ctx, req)
+}
+
+// UpdateModelApp forwards a model edit and invalidates the cached App.
+func (s *AppService) UpdateModelApp(
+	ctx context.Context,
+	req *connect.Request[flyteapp.UpdateModelAppRequest],
+) (*connect.Response[flyteapp.UpdateModelAppResponse], error) {
+	if s.cache != nil {
+		// The data plane may replace the Deployment before a later
+		// materialization step reports an error, so invalidate eagerly.
+		s.cache.Remove(cacheKey(req.Msg.GetAppId()))
+	}
+	resp, err := s.internalClient.UpdateModelApp(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
 // Get returns the app, using the cache on hit and calling InternalAppService on miss.
 func (s *AppService) Get(
 	ctx context.Context,

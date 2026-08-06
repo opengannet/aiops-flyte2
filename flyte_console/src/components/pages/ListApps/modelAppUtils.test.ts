@@ -14,10 +14,16 @@ import {
 } from "@/gen/flyteidl2/core/tasks_pb";
 import {
   buildCreateModelAppRequest,
+  buildUpdateModelAppRequest,
+  defaultModelAppFormValues,
   extractAppResourceSummary,
+  extractModelCloudStorageMounts,
+  modelAppConfigToFormValues,
   normalizeModelImageInput,
   splitModelParam,
+  validateModelAppFormValues,
 } from "./modelAppUtils";
+import { ModelAppConfigSchema } from "@/gen/flyteidl2/app/app_payload_pb";
 
 describe("model app helpers", () => {
   it("builds CreateModelAppRequest from form values", () => {
@@ -43,6 +49,16 @@ describe("model app helpers", () => {
         memory: " 16Gi ",
         gpu: "2",
         gpuKey: "example.com/gpu",
+        cloudStorageMounts: [
+          {
+            cloudStorageId: " storage-a ",
+            mountPath: " /mnt/models ",
+          },
+          {
+            cloudStorageId: "storage-b",
+            mountPath: "/mnt/checkpoints",
+          },
+        ],
       },
     });
 
@@ -63,6 +79,16 @@ describe("model app helpers", () => {
       gpu: 2,
       gpuKey: "example.com/gpu",
     });
+    expect(request.model?.cloudStorageMounts).toEqual([
+      expect.objectContaining({
+        cloudStorageId: "storage-a",
+        mountPath: "/mnt/models",
+      }),
+      expect.objectContaining({
+        cloudStorageId: "storage-b",
+        mountPath: "/mnt/checkpoints",
+      }),
+    ]);
   });
 
   it("splits params only on newlines and keeps image aliases stable", () => {
@@ -154,5 +180,194 @@ describe("model app helpers", () => {
         "Ephemeral Storage": undefined,
       },
     });
+  });
+
+  it("extracts model cloud storage ids, PVCs, and mount paths from the pod spec", () => {
+    const app = create(AppSchema, {
+      spec: {
+        appPayload: {
+          case: "pod",
+          value: create(K8sPodSchema, {
+            primaryContainerName: "vllm",
+            podSpec: {
+              volumes: [
+                {
+                  name: "models",
+                  persistentVolumeClaim: { claimName: "model-cache" },
+                },
+                {
+                  name: "cloud-storage-0",
+                  persistentVolumeClaim: { claimName: "cs-storage-a" },
+                },
+              ],
+              containers: [
+                {
+                  name: "vllm",
+                  volumeMounts: [
+                    { name: "cloud-storage-0", mountPath: "/mnt/storage-a" },
+                  ],
+                },
+              ],
+            },
+          }),
+        },
+      },
+    });
+
+    expect(extractModelCloudStorageMounts(app)).toEqual([
+      {
+        cloudStorageId: "storage-a",
+        pvcName: "cs-storage-a",
+        mountPath: "/mnt/storage-a",
+      },
+    ]);
+  });
+
+  it("hydrates editable values from a redacted model app config", () => {
+    const config = create(ModelAppConfigSchema, {
+      appId: {
+        org: "aione",
+        project: "flytesnacks",
+        domain: "development",
+        name: "qwen25-15b",
+      },
+      name: "Qwen2.5 1.5B Instruct",
+      code: "qwen25-15b",
+      image: "vllm",
+      param:
+        "--served-model-name\nqwen25-15b\n--max-num-seqs\n16\n--max-model-len\n8192\n--enforce-eager",
+      codes: [
+        {
+          id: "https://gitea.example/aione/qwen.git",
+          branch: "main",
+          path: "models/qwen",
+          tokenConfigured: true,
+        },
+      ],
+      resourceDefinition: {
+        cpu: "4",
+        memory: "16Gi",
+        gpu: 1,
+        gpuKey: "nvidia.com/gpu",
+      },
+      cloudStorageMounts: [
+        { cloudStorageId: "Models@Prod", mountPath: "/mnt/models" },
+      ],
+    });
+
+    expect(modelAppConfigToFormValues(config)).toEqual({
+      name: "Qwen2.5 1.5B Instruct",
+      id: "qwen25-15b",
+      code: "qwen25-15b",
+      image: "vllm",
+      param:
+        "--served-model-name\nqwen25-15b\n--max-num-seqs\n16\n--max-model-len\n8192\n--enforce-eager",
+      codes: [
+        {
+          id: "https://gitea.example/aione/qwen.git",
+          branch: "main",
+          path: "models/qwen",
+          token: "",
+        },
+      ],
+      cpu: "4",
+      memory: "16Gi",
+      gpu: "1",
+      gpuKey: "nvidia.com/gpu",
+      cloudStorageMounts: [
+        { cloudStorageId: "Models@Prod", mountPath: "/mnt/models" },
+      ],
+    });
+  });
+
+  it("builds an update request with editable fields only", () => {
+    const request = buildUpdateModelAppRequest({
+      appId: {
+        org: "aione",
+        project: "flytesnacks",
+        domain: "development",
+        name: "qwen25-15b",
+      },
+      values: {
+        ...defaultModelAppFormValues,
+        id: "qwen25-15b",
+        code: "immutable-code",
+        name: "Updated Qwen",
+        image: "registry.example/vllm:latest",
+        param: "--max-num-seqs\n16",
+        cloudStorageMounts: [
+          { cloudStorageId: "storage-a", mountPath: "/mnt/storage" },
+        ],
+      },
+    });
+
+    expect(request).toMatchObject({
+      appId: { name: "qwen25-15b" },
+      name: "Updated Qwen",
+      image: "registry.example/vllm:latest",
+      param: "--max-num-seqs\n16",
+      resourceDefinition: {
+        cpu: "4",
+        memory: "16Gi",
+        gpu: 1,
+        gpuKey: "nvidia.com/gpu",
+      },
+      cloudStorageMounts: [
+        { cloudStorageId: "storage-a", mountPath: "/mnt/storage" },
+      ],
+      reason: "console model app edit",
+    });
+    expect(request).not.toHaveProperty("code");
+    expect(request).not.toHaveProperty("codes");
+  });
+
+  it("shares validation for create and edit cloud storage mounts", () => {
+    expect(
+      validateModelAppFormValues({
+        ...defaultModelAppFormValues,
+        cloudStorageMounts: [
+          { cloudStorageId: "storage-a", mountPath: "relative/path" },
+        ],
+      }),
+    ).toBe("云存储挂载路径必须为绝对路径");
+    expect(validateModelAppFormValues(defaultModelAppFormValues)).toBeNull();
+  });
+
+  it.each(["", " ", "1.5", "1gpu", "NaN", "-1"])(
+    "rejects an invalid GPU count of %j",
+    (gpu) => {
+      expect(
+        validateModelAppFormValues({
+          ...defaultModelAppFormValues,
+          gpu,
+        }),
+      ).toBe("GPU 必须是非负整数");
+    },
+  );
+
+  it.each(["0", "1", "16"])("accepts a GPU count of %s", (gpu) => {
+    expect(
+      validateModelAppFormValues({
+        ...defaultModelAppFormValues,
+        gpu,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not silently truncate an invalid GPU count in update requests", () => {
+    expect(() =>
+      buildUpdateModelAppRequest({
+        appId: {
+          org: "aione",
+          project: "flytesnacks",
+          domain: "development",
+          name: "qwen25-15b",
+        },
+        values: {
+          ...defaultModelAppFormValues,
+          gpu: "1.5",
+        },
+      }),
+    ).toThrow("GPU 必须是非负整数");
   });
 });

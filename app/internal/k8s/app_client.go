@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -38,11 +39,13 @@ const (
 	labelAppName      = "flyte.org/app-name"
 	labelAppAuxiliary = "flyte.org/app-auxiliary"
 	labelAppStopped   = "flyte.org/app-stopped"
+	labelCloudStorage = "flyte.org/cloud-storage"
 
-	annotationSpecSHA = "flyte.org/spec-sha"
-	annotationAppID   = "flyte.org/app-id"
-	annotationAppOrg  = "flyte.org/app-org"
-	annotationSpec    = "flyte.org/spec"
+	annotationSpecSHA     = "flyte.org/spec-sha"
+	annotationAppID       = "flyte.org/app-id"
+	annotationAppOrg      = "flyte.org/app-org"
+	annotationSpec        = "flyte.org/spec"
+	annotationRestartedAt = "flyte.org/restarted-at"
 
 	maxAppResourceNameLen = 63
 	defaultOrg            = "flyte"
@@ -60,8 +63,12 @@ type AppAuxResources struct {
 type AppK8sClientInterface interface {
 	Deploy(ctx context.Context, app *flyteapp.App) error
 	DeployWithResources(ctx context.Context, app *flyteapp.App, resources AppAuxResources) error
+	RedeployWithResources(ctx context.Context, app *flyteapp.App, resources AppAuxResources) error
 	Stop(ctx context.Context, appID *flyteapp.Identifier) error
 	GetApp(ctx context.Context, appID *flyteapp.Identifier) (*flyteapp.App, error)
+	GetRuntimePodSpec(ctx context.Context, appID *flyteapp.Identifier) (*corev1.PodSpec, error)
+	GetAuxSecret(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.Secret, error)
+	GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error)
 	List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error)
 	Delete(ctx context.Context, appID *flyteapp.Identifier) error
 	GetReplicas(ctx context.Context, appID *flyteapp.Identifier) ([]*flyteapp.Replica, error)
@@ -96,6 +103,14 @@ func (c *AppK8sClient) Deploy(ctx context.Context, app *flyteapp.App) error {
 }
 
 func (c *AppK8sClient) DeployWithResources(ctx context.Context, app *flyteapp.App, resources AppAuxResources) error {
+	return c.deployWithResources(ctx, app, resources, false)
+}
+
+func (c *AppK8sClient) RedeployWithResources(ctx context.Context, app *flyteapp.App, resources AppAuxResources) error {
+	return c.deployWithResources(ctx, app, resources, true)
+}
+
+func (c *AppK8sClient) deployWithResources(ctx context.Context, app *flyteapp.App, resources AppAuxResources, forceRestart bool) error {
 	appID := app.GetMetadata().GetId()
 	if err := k8s.EnsureNamespaceExists(ctx, c.k8sClient, AppNamespace); err != nil {
 		return fmt.Errorf("failed to ensure namespace %s: %w", AppNamespace, err)
@@ -106,6 +121,12 @@ func (c *AppK8sClient) DeployWithResources(ctx context.Context, app *flyteapp.Ap
 	native, err := c.buildNativeResources(app)
 	if err != nil {
 		return fmt.Errorf("failed to build native resources for app %s: %w", AppResourceName(appID), err)
+	}
+	if forceRestart {
+		if native.Deployment.Spec.Template.Annotations == nil {
+			native.Deployment.Spec.Template.Annotations = map[string]string{}
+		}
+		native.Deployment.Spec.Template.Annotations[annotationRestartedAt] = time.Now().UTC().Format(time.RFC3339Nano)
 	}
 	if err := c.upsertDeployment(ctx, native.Deployment); err != nil {
 		return err
@@ -309,7 +330,8 @@ func (c *AppK8sClient) upsertDeployment(ctx context.Context, desired *appsv1.Dep
 		return fmt.Errorf("failed to get Deployment %s: %w", desired.Name, err)
 	}
 	stopped := existing.Labels[labelAppStopped] == "true"
-	if !stopped && existing.Annotations[annotationSpecSHA] == desired.Annotations[annotationSpecSHA] {
+	forceRestart := desired.Spec.Template.Annotations[annotationRestartedAt] != ""
+	if !stopped && !forceRestart && existing.Annotations[annotationSpecSHA] == desired.Annotations[annotationSpecSHA] {
 		return nil
 	}
 	existing.Spec = desired.Spec
@@ -441,6 +463,9 @@ func (c *AppK8sClient) deleteAuxResources(ctx context.Context, appID *flyteapp.I
 		return err
 	}
 	for i := range pvcs.Items {
+		if pvcs.Items[i].Labels[labelCloudStorage] == "true" {
+			continue
+		}
 		if err := c.k8sClient.Delete(ctx, &pvcs.Items[i]); err != nil && !k8serrors.IsNotFound(err) {
 			return err
 		}
@@ -589,6 +614,54 @@ func (c *AppK8sClient) GetApp(ctx context.Context, appID *flyteapp.Identifier) (
 		return nil, err
 	}
 	return c.deploymentToApp(deployment)
+}
+
+func (c *AppK8sClient) GetRuntimePodSpec(ctx context.Context, appID *flyteapp.Identifier) (*corev1.PodSpec, error) {
+	deployment := &appsv1.Deployment{}
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: AppResourceName(appID)}, deployment); err != nil {
+		return nil, err
+	}
+	return deployment.Spec.Template.Spec.DeepCopy(), nil
+}
+
+func (c *AppK8sClient) GetAuxSecret(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.Secret, error) {
+	secret := &corev1.Secret{}
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, secret); err != nil {
+		return nil, err
+	}
+	for key, value := range appAuxLabels(appID) {
+		if secret.Labels[key] != value {
+			return nil, fmt.Errorf("Secret %s is not owned by app %s", name, appID.GetName())
+		}
+	}
+	return secret, nil
+}
+
+func (c *AppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error) {
+	deployment := &appsv1.Deployment{}
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: AppResourceName(appID)}, deployment); err != nil {
+		return nil, err
+	}
+	referenced := false
+	for _, volume := range deployment.Spec.Template.Spec.Volumes {
+		claim := volume.PersistentVolumeClaim
+		if strings.HasPrefix(volume.Name, "cloud-storage-") && claim != nil && claim.ClaimName == name {
+			referenced = true
+			break
+		}
+	}
+	if !referenced {
+		return nil, fmt.Errorf("PersistentVolumeClaim %s is not referenced by app %s", name, appID.GetName())
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, pvc); err != nil {
+		return nil, err
+	}
+	if pvc.Labels[labelCloudStorage] != "true" {
+		return nil, fmt.Errorf("PersistentVolumeClaim %s is not a cloud storage volume", name)
+	}
+	return pvc, nil
 }
 
 func (c *AppK8sClient) List(ctx context.Context, project, domain string, limit uint32, token string) ([]*flyteapp.App, string, error) {

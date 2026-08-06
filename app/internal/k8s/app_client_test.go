@@ -140,17 +140,22 @@ func TestDeploy_K8sPodPayloadPreservesVLLMShape(t *testing.T) {
 	assert.Equal(t, int32(8000), service.Spec.Ports[0].TargetPort.IntVal)
 }
 
-func TestDeployWithResourcesCreatesAuxiliaryResourcesAndDeleteRemovesEverything(t *testing.T) {
+func TestDeployWithResourcesDeleteRemovesOwnedAuxiliaryResourcesAndPreservesCloudStoragePVC(t *testing.T) {
 	client := testClient(t)
 	app := testApp("proj", "dev", "qwen", "vllm")
 	id := app.Metadata.Id
 	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-secret"}, Data: map[string][]byte{"aione_params": []byte("token")}}
 	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "qwen-model-cache"}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")}}}}
-	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{Secrets: []*corev1.Secret{secret}, PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}))
+	cloudStoragePVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "cs-models", Labels: map[string]string{"flyte.org/cloud-storage": "true"}}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")}}}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{Secrets: []*corev1.Secret{secret}, PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc, cloudStoragePVC}}))
 	storedSecret := &corev1.Secret{}
 	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("qwen-model-secret"), storedSecret))
 	assert.Equal(t, "true", storedSecret.Labels[labelAppAuxiliary])
 	assert.NotContains(t, storedSecret.Annotations, annotationSpec)
+	storedCloudStoragePVC := &corev1.PersistentVolumeClaim{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("cs-models"), storedCloudStoragePVC))
+	assert.Equal(t, "true", storedCloudStoragePVC.Labels[labelAppAuxiliary])
+	assert.Equal(t, "true", storedCloudStoragePVC.Labels["flyte.org/cloud-storage"])
 
 	require.NoError(t, client.Delete(context.Background(), id))
 	for _, object := range []ctrlclient.Object{&appsv1.Deployment{}, &corev1.Service{}, &networkingv1.Ingress{}, &corev1.Secret{}, &corev1.PersistentVolumeClaim{}} {
@@ -163,6 +168,7 @@ func TestDeployWithResourcesCreatesAuxiliaryResourcesAndDeleteRemovesEverything(
 		}
 		assert.True(t, k8serrors.IsNotFound(client.k8sClient.Get(context.Background(), clientKey(name), object)))
 	}
+	assert.NoError(t, client.k8sClient.Get(context.Background(), clientKey("cs-models"), &corev1.PersistentVolumeClaim{}))
 }
 
 func TestStopScalesDeploymentToZeroAndRemovesIngress(t *testing.T) {
@@ -201,6 +207,121 @@ func TestDeployUpdatePreservesServiceClusterIP(t *testing.T) {
 	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), service))
 	assert.Equal(t, "10.43.0.10", service.Spec.ClusterIP)
 	assert.Equal(t, []string{"10.43.0.10"}, service.Spec.ClusterIPs)
+}
+
+func TestGetRuntimePodSpecReturnsLiveDeploymentArgs(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "qwen", "vllm")
+	require.NoError(t, client.Deploy(context.Background(), app))
+
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("qwen-proj-dev"), deployment))
+	deployment.Spec.Template.Spec.Containers[0].Args = []string{
+		"--served-model-name", "qwen",
+		"--model", "/models/qwen",
+		"--host", "0.0.0.0",
+		"--port", "8000",
+		"--max-num-seqs", "16",
+		"--max-model-len", "8192",
+		"--enforce-eager",
+	}
+	require.NoError(t, client.k8sClient.Update(context.Background(), deployment))
+
+	podSpec, err := client.GetRuntimePodSpec(context.Background(), app.Metadata.Id)
+	require.NoError(t, err)
+	require.Len(t, podSpec.Containers, 1)
+	assert.Contains(t, podSpec.Containers[0].Args, "--enforce-eager")
+	assert.Contains(t, podSpec.Containers[0].Args, "--max-model-len")
+}
+
+func TestRedeployWithResourcesForcesPodReplacementAndPreservesAuxResources(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "qwen", "vllm")
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "qwen-proj-dev-model-downloader"}, Data: map[string][]byte{"aione_params": []byte("secret")}}
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "qwen-proj-dev-model-cache"}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")}}}}
+	resources := AppAuxResources{Secrets: []*corev1.Secret{secret}, PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, resources))
+
+	before := &appsv1.Deployment{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("qwen-proj-dev"), before))
+	assert.Empty(t, before.Spec.Template.Annotations[annotationRestartedAt])
+
+	require.NoError(t, client.RedeployWithResources(context.Background(), app, resources))
+	after := &appsv1.Deployment{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("qwen-proj-dev"), after))
+	assert.NotEmpty(t, after.Spec.Template.Annotations[annotationRestartedAt])
+	assert.NotEqual(t, before.ResourceVersion, after.ResourceVersion)
+	assert.NoError(t, client.k8sClient.Get(context.Background(), clientKey(secret.Name), &corev1.Secret{}))
+	assert.NoError(t, client.k8sClient.Get(context.Background(), clientKey(pvc.Name), &corev1.PersistentVolumeClaim{}))
+}
+
+func TestGetAuxSecretReturnsOnlySecretOwnedByApp(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "qwen", "vllm")
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "qwen-proj-dev-model-downloader"}, Data: map[string][]byte{"aione_params": []byte("secret")}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{Secrets: []*corev1.Secret{secret}}))
+
+	got, err := client.GetAuxSecret(context.Background(), app.Metadata.Id, secret.Name)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("secret"), got.Data["aione_params"])
+
+	foreign := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "foreign", Namespace: AppNamespace}, Data: map[string][]byte{"aione_params": []byte("foreign")}}
+	require.NoError(t, client.k8sClient.Create(context.Background(), foreign))
+	_, err = client.GetAuxSecret(context.Background(), app.Metadata.Id, foreign.Name)
+	assert.ErrorContains(t, err, "not owned by app")
+}
+
+func TestGetAuxPVCAuthorizesLiveAppReferenceInsteadOfMutableOwnerLabels(t *testing.T) {
+	client := testClient(t)
+	sharedPVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "cs-models-prod",
+		Labels: map[string]string{
+			labelCloudStorage:            "true",
+			"flyte.org/cloud-storage-id": "Models@Prod",
+		},
+	}}
+	nonCloudPVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "model-cache"}}
+	unreferencedCloudPVC := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{
+		Name: "cs-unreferenced",
+		Labels: map[string]string{
+			labelCloudStorage:            "true",
+			"flyte.org/cloud-storage-id": "Unreferenced",
+		},
+	}}
+	appWithVolumes := func(name string) *flyteapp.App {
+		podSpec := corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "vllm", Image: "vllm"}},
+			Volumes: []corev1.Volume{
+				{Name: "cloud-storage-0", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: sharedPVC.Name}}},
+				{Name: "cloud-storage-1", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: nonCloudPVC.Name}}},
+			},
+		}
+		return &flyteapp.App{
+			Metadata: &flyteapp.Meta{Id: &flyteapp.Identifier{Project: "proj", Domain: "dev", Name: name}},
+			Spec: &flyteapp.Spec{AppPayload: &flyteapp.Spec_Pod{Pod: &flytecoreapp.K8SPod{
+				PodSpec: podSpecStruct(t, podSpec), PrimaryContainerName: "vllm",
+			}}},
+		}
+	}
+	appA := appWithVolumes("qwen-a")
+	appB := appWithVolumes("qwen-b")
+	require.NoError(t, client.DeployWithResources(context.Background(), appA, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{
+		sharedPVC, nonCloudPVC, unreferencedCloudPVC,
+	}}))
+	require.NoError(t, client.DeployWithResources(context.Background(), appB, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{sharedPVC.DeepCopy()}}))
+	storedSharedPVC := &corev1.PersistentVolumeClaim{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey(sharedPVC.Name), storedSharedPVC))
+	assert.Equal(t, appB.Metadata.Id.Name, storedSharedPVC.Labels[labelAppName], "the second app owns the mutable auxiliary labels")
+
+	got, err := client.GetAuxPVC(context.Background(), appA.Metadata.Id, sharedPVC.Name)
+	require.NoError(t, err)
+	assert.Equal(t, "Models@Prod", got.Labels["flyte.org/cloud-storage-id"])
+
+	_, err = client.GetAuxPVC(context.Background(), appA.Metadata.Id, unreferencedCloudPVC.Name)
+	assert.ErrorContains(t, err, "not referenced by app")
+
+	_, err = client.GetAuxPVC(context.Background(), appA.Metadata.Id, nonCloudPVC.Name)
+	assert.ErrorContains(t, err, "not a cloud storage volume")
 }
 
 func TestDeployRejectsReplicaRanges(t *testing.T) {

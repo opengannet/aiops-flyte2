@@ -7,7 +7,7 @@ import { type Metadata } from "next";
 import { CreateModelAppPage } from "@/components/pages/ListApps/CreateModelAppPage";
 
 export const metadata: Metadata = {
-  title: "Create Model App",
+  title: "创建模型应用",
 };
 
 export default function Home() {

@@ -12,14 +12,18 @@ import {
   Status_DeploymentStatus,
 } from "@/gen/flyteidl2/app/app_definition_pb";
 import { getStatus } from "@/lib/appUtils";
+import { useParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import stringify from "safe-stable-stringify";
 import {
   extractAppResourceSummary,
+  extractModelCloudStorageMounts,
   extractModelMetadata,
 } from "../ListApps/modelAppUtils";
+import { buildCloudStorageDetailHref } from "../CloudStorage/utils";
 
 export const AppSpecTab = ({ app }: { app: App | undefined }) => {
+  const params = useParams<{ domain: string; project: string }>();
   const [apiKey, setApiKey] = useState("");
   const [apiKeyError, setApiKeyError] = useState("");
   const [isCreatingApiKey, setIsCreatingApiKey] = useState(false);
@@ -27,6 +31,31 @@ export const AppSpecTab = ({ app }: { app: App | undefined }) => {
   const specJson = stringify(app?.spec);
   const modelMetadata = useMemo(() => extractModelMetadata(app), [app]);
   const isModelApp = app?.spec?.profile?.type === "VLLM";
+  const cloudStorageMounts = useMemo(
+    () => extractModelCloudStorageMounts(app),
+    [app],
+  );
+  const cloudStorageSections = useMemo(
+    () =>
+      cloudStorageMounts.map((mount, index) => ({
+        id: mount.cloudStorageId,
+        name: `云存储 ${index + 1}`,
+        items: [
+          {
+            name: "ID",
+            value: mount.cloudStorageId,
+            url: buildCloudStorageDetailHref(
+              params.domain,
+              params.project,
+              mount.cloudStorageId,
+            ),
+          },
+          { name: "PVC", value: mount.pvcName },
+          { name: "挂载路径", value: mount.mountPath },
+        ],
+      })),
+    [cloudStorageMounts, params.domain, params.project],
+  );
 
   const links = app?.spec?.links || [];
   const isActive =
@@ -151,6 +180,18 @@ export const AppSpecTab = ({ app }: { app: App | undefined }) => {
               )}
             </div>
           </div>
+        </TabSection>
+      )}
+
+      {isModelApp && cloudStorageSections.length > 0 && (
+        <TabSection
+          heading="云存储"
+          copyButtonContent={stringify(cloudStorageMounts)}
+        >
+          <DescriptionListWrapper
+            isRawView={false}
+            sections={cloudStorageSections}
+          />
         </TabSection>
       )}
 

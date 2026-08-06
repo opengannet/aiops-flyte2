@@ -16,7 +16,7 @@ RUN set -eux; \
     printf 'deb %s %s-updates main\n' "$DEBIAN_MIRROR" "$VERSION_CODENAME" >> /etc/apt/sources.list; \
     printf 'deb %s %s-security main\n' "$DEBIAN_SECURITY_MIRROR" "$VERSION_CODENAME" >> /etc/apt/sources.list; \
     apt-get -o Acquire::Retries=5 update \
-    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates git \
+    && DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates git git-lfs \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir requests minio

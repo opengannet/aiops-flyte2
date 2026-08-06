@@ -26,6 +26,8 @@ export const ListAppsOverflowActions = ({ app }: { app: App }) => {
     ? { id: 'start-app', label: 'Start app', onClick: () => startApp.mutate() }
     : { id: 'stop-app', label: 'Stop app', onClick: () => stopApp.mutate() }
   const { pathname } = getLocation()
+  const route = pathname.replace('/v2', '')
+  const appName = app.metadata?.id?.name
 
   return (
     <div
@@ -39,10 +41,18 @@ export const ListAppsOverflowActions = ({ app }: { app: App }) => {
             id: 'app-details',
             label: 'View app details',
             onClick: () => {
-              const route = pathname.replace('/v2', '')
-              router.push(`${route}/${app.metadata?.id?.name}`)
+              router.push(`${route}/${appName}`)
             },
           },
+          ...(app.spec?.profile?.type?.toUpperCase() === 'VLLM'
+            ? [
+                {
+                  id: 'edit-model-app',
+                  label: '编辑',
+                  onClick: () => router.push(`${route}/${appName}/edit`),
+                },
+              ]
+            : []),
           {
             id: 'divider-01',
             type: 'divider',

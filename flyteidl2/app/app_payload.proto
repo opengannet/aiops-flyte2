@@ -3,6 +3,7 @@ syntax = "proto3";
 package flyteidl2.app;
 
 import "buf/validate/validate.proto";
+import "flyteidl2/aione/cloudstorage/cloud_storage_definition.proto";
 import "flyteidl2/app/app_definition.proto";
 import "flyteidl2/common/identifier.proto";
 import "flyteidl2/common/list.proto";
@@ -32,6 +33,7 @@ message ModelAppInput {
   string param = 8;
   repeated ModelCodeSource codes = 9;
   ModelResourceDefinition resource_definition = 10;
+  repeated aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 11;
 }
 
 // ModelCodeSource describes a repository or archive source for model files.
@@ -48,6 +50,49 @@ message ModelResourceDefinition {
   string memory = 2;
   uint32 gpu = 3;
   string gpu_key = 4;
+}
+
+// Redacted repository source metadata shown when editing a model app.
+message ModelCodeSourceView {
+  string id = 1;
+  string branch = 2;
+  string path = 3;
+  bool token_configured = 4;
+}
+
+// Editable model-app configuration plus immutable, redacted source metadata.
+message ModelAppConfig {
+  Identifier app_id = 1 [(buf.validate.field).required = true];
+  string name = 2;
+  string code = 3;
+  string image = 4;
+  string param = 5;
+  repeated ModelCodeSourceView codes = 6;
+  ModelResourceDefinition resource_definition = 7;
+  repeated aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 8;
+}
+
+message GetModelAppConfigRequest {
+  Identifier app_id = 1 [(buf.validate.field).required = true];
+}
+
+message GetModelAppConfigResponse {
+  ModelAppConfig model = 1;
+}
+
+// Only runtime fields are accepted; identity and model source remain immutable.
+message UpdateModelAppRequest {
+  Identifier app_id = 1 [(buf.validate.field).required = true];
+  string name = 2;
+  string image = 3;
+  string param = 4;
+  ModelResourceDefinition resource_definition = 5;
+  repeated aione.cloudstorage.CloudStorageMount cloud_storage_mounts = 6;
+  string reason = 7 [(buf.validate.field).string.max_len = 100];
+}
+
+message UpdateModelAppResponse {
+  App app = 1;
 }
 
 // Response message for creating an app.

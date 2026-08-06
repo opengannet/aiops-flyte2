@@ -15,6 +15,7 @@ import (
 	appk8s "github.com/flyteorg/flyte/v2/app/internal/k8s"
 	"github.com/flyteorg/flyte/v2/app/internal/service"
 	"github.com/flyteorg/flyte/v2/gen/go/flyteidl2/app/appconnect"
+	"github.com/flyteorg/flyte/v2/runs/repository/impl"
 )
 
 const otelServiceName = "internal-app-service"
@@ -29,7 +30,7 @@ func Setup(ctx context.Context, sc *stdlibapp.SetupContext, cfg *appconfig.Inter
 	}
 
 	appK8sClient := appk8s.NewAppK8sClient(sc.K8sClient, sc.K8sCache, cfg)
-	internalAppSvc := service.NewInternalAppService(appK8sClient)
+	internalAppSvc := service.NewInternalAppService(appK8sClient, impl.NewCloudStorageRepo(sc.DB))
 
 	if err := appK8sClient.StartWatching(ctx); err != nil {
 		return fmt.Errorf("internalapp: failed to start Deployment watcher: %w", err)
