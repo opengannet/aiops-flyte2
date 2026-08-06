@@ -126,6 +126,7 @@ describe("EditModelAppPage", () => {
     expect(param.value).toContain("--max-num-seqs\n16");
     expect(param.value).toContain("--max-model-len\n8192");
     expect(param.value).toContain("--enforce-eager");
+    expect(param).toHaveAttribute("rows", "8");
   });
 
   it("submits editable fields and navigates to app details", async () => {

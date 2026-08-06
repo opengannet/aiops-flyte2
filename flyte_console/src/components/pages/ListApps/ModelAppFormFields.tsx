@@ -78,6 +78,7 @@ export function ModelAppFormFields({
           <ModelAppField label="启动参数">
             <textarea
               className={textareaClassName}
+              rows={8}
               value={values.param}
               onChange={(event) => onFieldChange("param", event.target.value)}
             />
