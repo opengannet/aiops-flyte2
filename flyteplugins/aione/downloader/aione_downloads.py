@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -16,6 +17,9 @@ from minio import Minio
 
 ARCHIVE_FILENAME = "archive.zip"
 REQUEST_TIMEOUT_SECONDS = 60
+GIT_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
+GIT_LFS_POINTER_SCAN_BYTES = 1024
+GIT_LFS_POINTER_MAX_SIZE = 1024 * 1024
 
 
 @dataclass
@@ -99,9 +103,13 @@ def _clone_git(data: GitData) -> None:
         raise ValueError("target directory is required")
 
     if os.path.exists(data.target_dir) and os.listdir(data.target_dir):
-        flush_print(f"Target directory {data.target_dir} is not empty; reusing existing contents")
-        _make_tree_readable(data.target_dir)
-        return
+        if _contains_git_lfs_pointer(data.target_dir):
+            flush_print(f"Target directory {data.target_dir} contains Git LFS pointer files; redownloading")
+            _clear_directory(data.target_dir)
+        else:
+            flush_print(f"Target directory {data.target_dir} is not empty; reusing existing contents")
+            _make_tree_readable(data.target_dir)
+            return
 
     if _download_gitlab_archive(data):
         return
@@ -143,6 +151,10 @@ def _download_archive(source_name: str, url: str, headers: dict[str, str], targe
     target_file = _save_archive_file(target_dir, response)
     flush_print(f"Archive downloaded to {target_file}")
     _unzip(target_dir)
+    if _contains_git_lfs_pointer(target_dir):
+        flush_print(f"{source_name} archive contains Git LFS pointer files; trying git clone with Git LFS")
+        _clear_directory(target_dir)
+        return False
     return True
 
 
@@ -154,13 +166,36 @@ def _git_clone_fallback(data: GitData) -> None:
     clone_url = _repo_url_with_token(data.repo_url, data.access_token)
     command = ["git", "clone", "--depth", "1", "--branch", data.branch, clone_url, data.target_dir]
     flush_print(f"Cloning repository {_redact_repo_url(data.repo_url)} at branch {data.branch}")
+    env = os.environ.copy()
+    env["GIT_LFS_SKIP_SMUDGE"] = "1"
     try:
-        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
     except FileNotFoundError as exc:
         raise RuntimeError("git is required for repository clone fallback") from exc
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"git clone fallback failed with exit code {exc.returncode}") from exc
+    if _contains_git_lfs_pointer(data.target_dir):
+        _git_lfs_pull(data.target_dir)
     _make_tree_readable(data.target_dir)
+
+
+def _git_lfs_pull(target_dir: str) -> None:
+    flush_print("Resolving Git LFS objects")
+    try:
+        subprocess.run(
+            ["git", "lfs", "pull"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=target_dir,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError("git-lfs is required to resolve Git LFS model files") from exc
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"git lfs pull failed with exit code {exc.returncode}") from exc
+    if _contains_git_lfs_pointer(target_dir):
+        raise RuntimeError("git lfs pull completed but Git LFS pointer files remain")
 
 
 def _repo_url_with_token(repo_url: str, token: str) -> str:
@@ -210,6 +245,36 @@ def _make_tree_readable(directory: str) -> None:
                 os.path.join(root, filename),
                 stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH,
             )
+
+
+def _clear_directory(directory: str) -> None:
+    if not os.path.isdir(directory):
+        return
+    for name in os.listdir(directory):
+        target = os.path.join(directory, name)
+        if os.path.isdir(target) and not os.path.islink(target):
+            shutil.rmtree(target)
+        else:
+            os.remove(target)
+
+
+def _contains_git_lfs_pointer(directory: str) -> bool:
+    if not os.path.isdir(directory):
+        return False
+    for root, _, files in os.walk(directory):
+        if ".git" in root.split(os.sep):
+            continue
+        for filename in files:
+            filepath = os.path.join(root, filename)
+            try:
+                if os.path.getsize(filepath) > GIT_LFS_POINTER_MAX_SIZE:
+                    continue
+                with open(filepath, "rb") as source:
+                    if source.read(GIT_LFS_POINTER_SCAN_BYTES).startswith(GIT_LFS_POINTER_PREFIX):
+                        return True
+            except OSError:
+                continue
+    return False
 
 
 def _unzip(target_dir: str) -> None:
