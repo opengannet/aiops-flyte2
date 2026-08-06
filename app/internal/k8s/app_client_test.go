@@ -14,6 +14,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -33,6 +34,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 	require.NoError(t, appsv1.AddToScheme(scheme))
 	require.NoError(t, corev1.AddToScheme(scheme))
 	require.NoError(t, networkingv1.AddToScheme(scheme))
+	require.NoError(t, storagev1.AddToScheme(scheme))
 	return scheme
 }
 
@@ -255,6 +257,35 @@ func TestRedeployWithResourcesForcesPodReplacementAndPreservesAuxResources(t *te
 	assert.NoError(t, client.k8sClient.Get(context.Background(), clientKey(pvc.Name), &corev1.PersistentVolumeClaim{}))
 }
 
+func TestRedeployWithResourcesGrowsExistingPVCRequest(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "qwen", "vllm")
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "qwen-proj-dev-model-cache"}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")}}}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}))
+
+	grown := pvc.DeepCopy()
+	grown.Spec.Resources.Requests[corev1.ResourceStorage] = k8sresource.MustParse("120Gi")
+	require.NoError(t, client.RedeployWithResources(context.Background(), app, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{grown}}))
+
+	stored := &corev1.PersistentVolumeClaim{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey(pvc.Name), stored))
+	storedSize := stored.Spec.Resources.Requests[corev1.ResourceStorage]
+	assert.Equal(t, "120Gi", storedSize.String())
+}
+
+func TestRedeployWithResourcesRejectsPVCRequestShrink(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "qwen", "vllm")
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "qwen-proj-dev-model-cache"}, Spec: corev1.PersistentVolumeClaimSpec{AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}, Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("120Gi")}}}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}))
+
+	shrunk := pvc.DeepCopy()
+	shrunk.Spec.Resources.Requests[corev1.ResourceStorage] = k8sresource.MustParse("80Gi")
+	err := client.RedeployWithResources(context.Background(), app, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{shrunk}})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "cannot shrink PVC")
+}
+
 func TestGetAuxSecretReturnsOnlySecretOwnedByApp(t *testing.T) {
 	client := testClient(t)
 	app := testApp("proj", "dev", "qwen", "vllm")
@@ -269,6 +300,39 @@ func TestGetAuxSecretReturnsOnlySecretOwnedByApp(t *testing.T) {
 	require.NoError(t, client.k8sClient.Create(context.Background(), foreign))
 	_, err = client.GetAuxSecret(context.Background(), app.Metadata.Id, foreign.Name)
 	assert.ErrorContains(t, err, "not owned by app")
+}
+
+func TestGetAppAuxPVCReturnsOnlyPVCOwnedByApp(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "qwen", "vllm")
+	pvc := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "qwen-proj-dev-model-cache"}, Spec: corev1.PersistentVolumeClaimSpec{Resources: corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: k8sresource.MustParse("80Gi")}}}}
+	require.NoError(t, client.DeployWithResources(context.Background(), app, AppAuxResources{PersistentVolumeClaims: []*corev1.PersistentVolumeClaim{pvc}}))
+
+	got, err := client.GetAppAuxPVC(context.Background(), app.Metadata.Id, pvc.Name)
+	require.NoError(t, err)
+	assert.Equal(t, pvc.Name, got.Name)
+
+	foreign := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "foreign", Namespace: AppNamespace}}
+	require.NoError(t, client.k8sClient.Create(context.Background(), foreign))
+	_, err = client.GetAppAuxPVC(context.Background(), app.Metadata.Id, foreign.Name)
+	assert.ErrorContains(t, err, "not owned by app")
+}
+
+func TestStorageClassAllowsExpansionReadsStorageClassFlag(t *testing.T) {
+	allow := true
+	deny := false
+	client := testClient(t,
+		&storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "bj1-ebs"}, AllowVolumeExpansion: &allow},
+		&storagev1.StorageClass{ObjectMeta: metav1.ObjectMeta{Name: "local-path"}, AllowVolumeExpansion: &deny},
+	)
+
+	expandable, err := client.StorageClassAllowsExpansion(context.Background(), "bj1-ebs")
+	require.NoError(t, err)
+	assert.True(t, expandable)
+
+	expandable, err = client.StorageClassAllowsExpansion(context.Background(), "local-path")
+	require.NoError(t, err)
+	assert.False(t, expandable)
 }
 
 func TestGetAuxPVCAuthorizesLiveAppReferenceInsteadOfMutableOwnerLabels(t *testing.T) {

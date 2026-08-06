@@ -1287,6 +1287,9 @@ function buildExternalModelAppValues(payload: unknown) {
     object.datastores,
     defaultStorageClass,
   );
+  const modelCacheSize =
+    stringField(object, "modelCacheSize") ||
+    stringField(object, "model_cache_size");
 
   return {
     sourceOrg,
@@ -1304,6 +1307,7 @@ function buildExternalModelAppValues(payload: unknown) {
         code,
         image: stringField(object, "image") || "vllm",
         param: stringField(object, "param"),
+        modelCacheSize,
         codes: parseExternalModelCodeSources(object.codes),
         resourceDefinition: create(ModelResourceDefinitionSchema, {
           cpu: stringField(resources, "cpu"),
@@ -1314,7 +1318,8 @@ function buildExternalModelAppValues(payload: unknown) {
             "resourceDefinition.gpu",
           ),
           gpuKey:
-            stringField(resources, "gpu_key") || stringField(resources, "gpuKey"),
+            stringField(resources, "gpu_key") ||
+            stringField(resources, "gpuKey"),
         }),
         cloudStorageMounts: cloudStorageMounts.map((mount) =>
           create(CloudStorageMountSchema, {

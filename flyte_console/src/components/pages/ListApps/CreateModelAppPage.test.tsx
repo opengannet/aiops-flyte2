@@ -93,6 +93,7 @@ describe("CreateModelAppPage", () => {
   it("uses Chinese labels and submits a selected existing cloud storage", async () => {
     const user = userEvent.setup();
     render(<CreateModelAppPage />);
+    expect(screen.getByLabelText("模型缓存 PVC 容量 (Gi)")).toHaveValue(80);
 
     expect(screen.getByRole("heading", { name: "创建模型应用" })).toBeVisible();
     expect(screen.getByText("模型信息")).toBeVisible();
@@ -113,6 +114,9 @@ describe("CreateModelAppPage", () => {
     await user.click(screen.getByRole("button", { name: "创建" }));
 
     await waitFor(() => expect(mocks.createModelApp).toHaveBeenCalledTimes(1));
+    expect(mocks.createModelApp.mock.calls[0][0].model.modelCacheSize).toBe(
+      "80Gi",
+    );
     expect(
       mocks.createModelApp.mock.calls[0][0].model.cloudStorageMounts,
     ).toEqual([

@@ -43,6 +43,7 @@ export type ModelAppFormValues = {
   memory: string;
   gpu: string;
   gpuKey: string;
+  modelCacheSize: string;
   cloudStorageMounts: {
     cloudStorageId: string;
     mountPath: string;
@@ -86,6 +87,7 @@ export type ModelCloudStorageMetadata = {
 };
 
 const DEFAULT_GPU_KEY = "nvidia.com/gpu";
+const DEFAULT_MODEL_CACHE_SIZE_GI = "80";
 const WELL_KNOWN_K8S_RESOURCES = new Set([
   "cpu",
   "memory",
@@ -104,6 +106,7 @@ export const defaultModelAppFormValues: ModelAppFormValues = {
   memory: "16Gi",
   gpu: "1",
   gpuKey: DEFAULT_GPU_KEY,
+  modelCacheSize: DEFAULT_MODEL_CACHE_SIZE_GI,
   cloudStorageMounts: [],
 };
 
@@ -137,6 +140,7 @@ export function buildCreateModelAppRequest({
     .map((source) => create(ModelCodeSourceSchema, source));
 
   const gpu = parseModelGpu(values.gpu);
+  const modelCacheSize = formatModelCacheSize(values.modelCacheSize);
   return create(CreateModelAppRequestSchema, {
     model: create(ModelAppInputSchema, {
       org,
@@ -154,6 +158,7 @@ export function buildCreateModelAppRequest({
         gpu,
         gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
       }),
+      modelCacheSize,
       cloudStorageMounts: values.cloudStorageMounts.map((mount) =>
         create(CloudStorageMountSchema, {
           cloudStorageId: mount.cloudStorageId.trim(),
@@ -169,6 +174,7 @@ export function buildUpdateModelAppRequest({
   values,
 }: BuildUpdateModelAppRequestInput): UpdateModelAppRequest {
   const gpu = parseModelGpu(values.gpu);
+  const modelCacheSize = formatModelCacheSize(values.modelCacheSize);
   return create(UpdateModelAppRequestSchema, {
     appId: create(IdentifierSchema, appId),
     name: values.name.trim(),
@@ -186,6 +192,7 @@ export function buildUpdateModelAppRequest({
         mountPath: mount.mountPath.trim(),
       }),
     ),
+    modelCacheSize,
     reason: "console model app edit",
   });
 }
@@ -213,6 +220,9 @@ export function modelAppConfigToFormValues(
     memory: resourceDefinition?.memory ?? "",
     gpu: String(resourceDefinition?.gpu ?? 0),
     gpuKey: resourceDefinition?.gpuKey || DEFAULT_GPU_KEY,
+    modelCacheSize: quantityToGiIntegerString(
+      config.modelCachePvc?.requestedSize,
+    ),
     cloudStorageMounts: config.cloudStorageMounts.map((mount) => ({
       cloudStorageId: mount.cloudStorageId,
       mountPath: mount.mountPath,
@@ -220,9 +230,32 @@ export function modelAppConfigToFormValues(
   };
 }
 
-export function validateModelAppFormValues(values: ModelAppFormValues) {
+export type ValidateModelAppFormOptions = {
+  currentModelCacheSize?: string;
+  modelCacheExpandable?: boolean;
+};
+
+export function validateModelAppFormValues(
+  values: ModelAppFormValues,
+  options: ValidateModelAppFormOptions = {},
+) {
   try {
     parseModelGpu(values.gpu);
+    const requestedCacheSizeGi = parsePositiveGiInteger(values.modelCacheSize);
+    const currentCacheSizeGi = parseQuantityToGi(options.currentModelCacheSize);
+    if (
+      currentCacheSizeGi !== undefined &&
+      requestedCacheSizeGi < currentCacheSizeGi
+    ) {
+      return "模型缓存 PVC 容量只能增大，不能变小";
+    }
+    if (
+      options.modelCacheExpandable === false &&
+      currentCacheSizeGi !== undefined &&
+      requestedCacheSizeGi > currentCacheSizeGi
+    ) {
+      return "当前 PVC 不支持在线扩容，需要迁移或重建";
+    }
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
   }
@@ -234,6 +267,58 @@ export function validateModelAppFormValues(values: ModelAppFormValues) {
     return "云存储挂载路径必须为绝对路径";
   }
   return null;
+}
+
+function formatModelCacheSize(value: string) {
+  return `${parsePositiveGiInteger(value)}Gi`;
+}
+
+function parsePositiveGiInteger(value: string) {
+  const trimmed = value.trim();
+  if (!/^[1-9]\d*$/.test(trimmed)) {
+    throw new Error("模型缓存 PVC 容量必须是正整数");
+  }
+  const size = Number(trimmed);
+  if (!Number.isSafeInteger(size)) {
+    throw new Error("模型缓存 PVC 容量必须是正整数");
+  }
+  return size;
+}
+
+function quantityToGiIntegerString(value: string | undefined) {
+  const size = parseQuantityToGi(value);
+  return size === undefined ? DEFAULT_MODEL_CACHE_SIZE_GI : String(size);
+}
+
+function parseQuantityToGi(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const plainMatch = trimmed.match(/^([1-9]\d*)$/);
+  if (plainMatch) {
+    return Number(plainMatch[1]);
+  }
+  const binaryMatch = trimmed.match(/^([1-9]\d*)(Ki|Mi|Gi|Ti|Pi|Ei)$/);
+  if (!binaryMatch) {
+    return undefined;
+  }
+  const valueInUnits = Number(binaryMatch[1]);
+  if (!Number.isSafeInteger(valueInUnits)) {
+    return undefined;
+  }
+  const factorByUnit: Record<string, number> = {
+    Ki: 1 / (1024 * 1024),
+    Mi: 1 / 1024,
+    Gi: 1,
+    Ti: 1024,
+    Pi: 1024 * 1024,
+    Ei: 1024 * 1024 * 1024,
+  };
+  const size = valueInUnits * factorByUnit[binaryMatch[2]];
+  return Number.isInteger(size) && Number.isSafeInteger(size)
+    ? size
+    : undefined;
 }
 
 function parseModelGpu(value: string) {
