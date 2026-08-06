@@ -88,4 +88,19 @@ describe("ListAppsOverflowActions", () => {
       screen.queryByRole("button", { name: "编辑" }),
     ).not.toBeInTheDocument();
   });
+
+  it("shows Simplified Chinese labels for app details and copying the endpoint", () => {
+    const app = create(AppSchema, {
+      metadata: { id: { name: "qwen25-15b" } },
+      status: { ingress: { publicUrl: "https://apps.example.test/qwen25-15b" } },
+    });
+    render(<ListAppsOverflowActions app={app} />);
+
+    expect(
+      screen.getByRole("button", { name: "查看应用详情" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "复制访问地址" }),
+    ).toBeInTheDocument();
+  });
 });

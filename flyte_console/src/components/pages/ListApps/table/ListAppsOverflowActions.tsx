@@ -23,8 +23,8 @@ export const ListAppsOverflowActions = ({ app }: { app: App }) => {
   const stopApp = useStopApp({ app })
 
   const startStop = isUnspecifiedOrStopped
-    ? { id: 'start-app', label: 'Start app', onClick: () => startApp.mutate() }
-    : { id: 'stop-app', label: 'Stop app', onClick: () => stopApp.mutate() }
+    ? { id: 'start-app', label: '启动应用', onClick: () => startApp.mutate() }
+    : { id: 'stop-app', label: '停止应用', onClick: () => stopApp.mutate() }
   const { pathname } = getLocation()
   const route = pathname.replace('/v2', '')
   const appName = app.metadata?.id?.name
@@ -39,7 +39,7 @@ export const ListAppsOverflowActions = ({ app }: { app: App }) => {
         items={[
           {
             id: 'app-details',
-            label: 'View app details',
+            label: '查看应用详情',
             onClick: () => {
               router.push(`${route}/${appName}`)
             },
@@ -64,13 +64,13 @@ export const ListAppsOverflowActions = ({ app }: { app: App }) => {
           },
           {
             id: 'copy-name',
-            label: 'Copy app name',
+            label: '复制应用名称',
             onClick: () =>
               navigator.clipboard.writeText(app.metadata?.id?.name || '-'),
           },
           {
             id: 'copy-endpoint',
-            label: 'Copy endpoint link',
+            label: '复制访问地址',
             onClick: () =>
               navigator.clipboard.writeText(
                 app.status?.ingress?.publicUrl || '-',

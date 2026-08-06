@@ -18,26 +18,26 @@ import clsx from 'clsx'
 const getAppStatusDisplayText = (status: Status_DeploymentStatus): string[] => {
   switch (status) {
     case Status_DeploymentStatus.ACTIVE:
-      return ['Active']
+      return ['运行中']
     case Status_DeploymentStatus.ASSIGNED:
-      return ['Assigned']
+      return ['已分配']
     case Status_DeploymentStatus.DEPLOYING:
-      return ['Deploying']
+      return ['部署中']
     case Status_DeploymentStatus.FAILED:
-      return ['Failed']
+      return ['失败']
     case Status_DeploymentStatus.PENDING:
-      return ['Pending']
+      return ['等待中']
     case Status_DeploymentStatus.SCALING_DOWN:
-      return ['Active ', 'Scaling down']
+      return ['运行中', '缩容中']
     case Status_DeploymentStatus.SCALING_UP:
-      return ['Active', 'Scaling up']
+      return ['运行中', '扩容中']
     case Status_DeploymentStatus.STOPPED:
-      return ['Stopped']
+      return ['已停止']
     case Status_DeploymentStatus.UNASSIGNED:
-      return ['Inactive']
+      return ['未启用']
     default:
     case Status_DeploymentStatus.UNSPECIFIED:
-      return ['Unspecified']
+      return ['未指定']
   }
 }
 

@@ -38,7 +38,7 @@ export function ListAppsPage() {
 
             <div className="flex items-center justify-between gap-2 px-10 pt-6 pb-3">
               <div className="flex flex-col">
-                <h1 className="text-xl font-medium">Apps</h1>
+                <h1 className="text-xl font-medium">应用</h1>
               </div>
               <div className="flex items-center gap-3">
                 <Button

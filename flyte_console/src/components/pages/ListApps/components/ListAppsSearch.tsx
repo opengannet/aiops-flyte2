@@ -9,7 +9,7 @@ export const ListAppsSearch = () => {
   const { searchTermInput, setSearchTerm } = useSearchTerm()
   return (
     <SearchBar
-      placeholder="Search apps"
+      placeholder="搜索应用"
       value={searchTermInput ?? undefined}
       onChange={(e) => setSearchTerm(e.target.value)}
       onClear={() => setSearchTerm('')}
