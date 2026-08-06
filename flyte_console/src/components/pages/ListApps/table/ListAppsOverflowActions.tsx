@@ -44,7 +44,7 @@ export const ListAppsOverflowActions = ({ app }: { app: App }) => {
               router.push(`${route}/${appName}`)
             },
           },
-          ...(app.spec?.profile?.type === 'VLLM'
+          ...(app.spec?.profile?.type?.toUpperCase() === 'VLLM'
             ? [
                 {
                   id: 'edit-model-app',

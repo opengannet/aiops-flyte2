@@ -29,10 +29,14 @@ func (s *InternalAppService) GetModelAppConfig(
 	if err != nil {
 		return nil, err
 	}
+	canonicalID := app.GetMetadata().GetId()
+	if !sameAppIdentifier(appID, canonicalID) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("request app_id does not match stored app identity"))
+	}
 	if !strings.EqualFold(app.GetSpec().GetProfile().GetType(), "VLLM") {
 		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("app %s is not a VLLM model app", appID.GetName()))
 	}
-	podSpec, err := s.k8s.GetRuntimePodSpec(ctx, appID)
+	podSpec, err := s.k8s.GetRuntimePodSpec(ctx, canonicalID)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
@@ -80,7 +84,8 @@ func (s *InternalAppService) UpdateModelApp(
 	if !sameAppIdentifier(appID, canonicalID) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("request app_id does not match stored app identity"))
 	}
-	if err := validateModelAppCloudStorageMounts(req.Msg.GetCloudStorageMounts()); err != nil {
+	modelPath := modelInputString(existing, "model_path")
+	if err := validateModelAppCloudStorageMounts(req.Msg.GetCloudStorageMounts(), modelPath); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 
@@ -88,7 +93,6 @@ func (s *InternalAppService) UpdateModelApp(
 	if err != nil {
 		return nil, err
 	}
-	modelPath := modelInputString(existing, "model_path")
 	if modelPath != "" && len(codes) > 0 {
 		codes[0].Path = modelPath
 	}

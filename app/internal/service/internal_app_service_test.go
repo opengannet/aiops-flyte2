@@ -329,6 +329,48 @@ func TestGetModelAppConfigSanitizesCredentialsFromHistoricalRepositoryURL(t *tes
 	k8s.AssertExpectations(t)
 }
 
+func TestGetModelAppConfigRejectsRequestIdentityThatDiffersFromStoredApp(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+	}
+	existing, _, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	requestID := &flyteapp.Identifier{Org: "other-org", Project: "proj", Domain: "dev", Name: "qwen"}
+	var podSpec corev1.PodSpec
+	require.NoError(t, utils.UnmarshalStructToObj(existing.Spec.GetPod().GetPodSpec(), &podSpec))
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, requestID).Return(existing, nil)
+	k8s.On("GetRuntimePodSpec", mock.Anything, requestID).Return(&podSpec, nil).Maybe()
+	svc := NewInternalAppService(k8s)
+
+	_, err = svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: requestID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	k8s.AssertNotCalled(t, "GetRuntimePodSpec", mock.Anything, mock.Anything)
+}
+
+func TestGetModelAppConfigRestoresCustomGPUKeyWhenGPUIsZero(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+		ResourceDefinition: &flyteapp.ModelResourceDefinition{Cpu: "4", Memory: "16Gi", GpuKey: "example.com/shared-gpu"},
+	}
+	app, _, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	var podSpec corev1.PodSpec
+	require.NoError(t, utils.UnmarshalStructToObj(app.Spec.GetPod().GetPodSpec(), &podSpec))
+
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, app.Metadata.Id).Return(app, nil)
+	k8s.On("GetRuntimePodSpec", mock.Anything, app.Metadata.Id).Return(&podSpec, nil)
+	svc := NewInternalAppService(k8s)
+
+	response, err := svc.GetModelAppConfig(context.Background(), connect.NewRequest(&flyteapp.GetModelAppConfigRequest{AppId: app.Metadata.Id}))
+	require.NoError(t, err)
+	assert.Zero(t, response.Msg.GetModel().GetResourceDefinition().GetGpu())
+	assert.Equal(t, "example.com/shared-gpu", response.Msg.GetModel().GetResourceDefinition().GetGpuKey())
+}
+
 func TestUpdateModelAppPreservesIdentitySourceAndPVCWhileRedeployingRuntimeConfig(t *testing.T) {
 	input := &flyteapp.ModelAppInput{
 		Org:     "aione",
@@ -442,6 +484,30 @@ func TestUpdateModelAppRejectsInvalidResourceQuantityWithoutPanicking(t *testing
 	})
 	require.Error(t, updateErr)
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(updateErr))
+}
+
+func TestUpdateModelAppRejectsCloudStorageThatShadowsActualModelPath(t *testing.T) {
+	input := &flyteapp.ModelAppInput{
+		Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+		Codes: []*flyteapp.ModelCodeSource{{Id: "https://gitea.example.com/aione/qwen.git", Path: "/opt/model-cache/qwen"}},
+	}
+	existing, resources, err := buildModelApp(input, nil)
+	require.NoError(t, err)
+	require.Len(t, resources.Secrets, 1)
+	k8s := &mockAppK8sClient{}
+	k8s.On("GetApp", mock.Anything, existing.Metadata.Id).Return(existing, nil)
+	k8s.On("GetAuxSecret", mock.Anything, existing.Metadata.Id, mock.Anything).Return(resources.Secrets[0], nil).Maybe()
+	svc := NewInternalAppService(k8s)
+
+	_, err = svc.UpdateModelApp(context.Background(), connect.NewRequest(&flyteapp.UpdateModelAppRequest{
+		AppId: existing.Metadata.Id,
+		CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{
+			CloudStorageId: "weights", MountPath: "/opt/model-cache/qwen/weights",
+		}},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	k8s.AssertNotCalled(t, "RedeployWithResources", mock.Anything, mock.Anything, mock.Anything)
 }
 
 // --- Create ---
@@ -801,7 +867,10 @@ func TestCreateModelApp_RejectsModelCacheReservedMountPaths(t *testing.T) {
 		{name: "hugging face cache", mountPath: huggingFaceCachePath},
 		{name: "model directory trailing slash", mountPath: "/models/"},
 		{name: "model directory dot segment", mountPath: "/models/."},
+		{name: "model directory child", mountPath: "/models/qwen25-15b"},
+		{name: "model directory normalized child", mountPath: "/tmp/../models/qwen25-15b/weights"},
 		{name: "hugging face cache trailing slash", mountPath: "/root/.cache/huggingface/."},
+		{name: "hugging face cache child", mountPath: "/root/.cache/huggingface/hub"},
 	}
 
 	for _, tt := range tests {
@@ -831,6 +900,29 @@ func TestCreateModelApp_RejectsModelCacheReservedMountPaths(t *testing.T) {
 			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 		})
 	}
+}
+
+func TestValidateModelAppCloudStorageMountsAllowsSimilarPathPrefix(t *testing.T) {
+	err := validateModelAppCloudStorageMounts([]*cloudstoragepb.CloudStorageMount{{
+		CloudStorageId: "models-1", MountPath: "/models2/qwen",
+	}})
+	require.NoError(t, err)
+}
+
+func TestCreateModelAppRejectsCloudStorageThatShadowsActualModelPath(t *testing.T) {
+	svc := NewInternalAppService(&mockAppK8sClient{})
+
+	_, err := svc.CreateModelApp(context.Background(), connect.NewRequest(&flyteapp.CreateModelAppRequest{
+		Model: &flyteapp.ModelAppInput{
+			Org: "aione", Project: "proj", Domain: "dev", Id: "qwen", Code: "qwen",
+			Codes: []*flyteapp.ModelCodeSource{{Id: "https://gitea.example.com/aione/qwen.git", Path: "/opt/model-cache/qwen"}},
+			CloudStorageMounts: []*cloudstoragepb.CloudStorageMount{{
+				CloudStorageId: "weights", MountPath: "/opt/model-cache/qwen/weights",
+			}},
+		},
+	}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 }
 
 func TestCreateModelApp_RejectsAmbiguousCloudStorageID(t *testing.T) {

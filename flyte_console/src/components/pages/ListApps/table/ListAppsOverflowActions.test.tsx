@@ -67,6 +67,16 @@ describe("ListAppsOverflowActions", () => {
     );
   });
 
+  it("shows Edit for lowercase vllm apps", () => {
+    const app = create(AppSchema, {
+      metadata: { id: { name: "legacy-qwen" } },
+      spec: { profile: { type: "vllm" } },
+    });
+    render(<ListAppsOverflowActions app={app} />);
+
+    expect(screen.getByRole("button", { name: "编辑" })).toBeInTheDocument();
+  });
+
   it("does not show Edit for non-VLLM apps", () => {
     const app = create(AppSchema, {
       metadata: { id: { name: "streamlit-app" } },

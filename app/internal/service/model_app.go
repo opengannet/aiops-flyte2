@@ -61,7 +61,7 @@ func (s *InternalAppService) CreateModelApp(
 	if err := validateModelSourceCredentials(input.GetCodes()); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
-	if err := validateModelAppCloudStorageMounts(input.GetCloudStorageMounts()); err != nil {
+	if err := validateModelAppCloudStorageMounts(input.GetCloudStorageMounts(), modelAppInputModelPath(input)); err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
 	}
 	cloudStorageMounts, err := s.resolveModelAppCloudStorageMounts(ctx, input)
@@ -131,7 +131,9 @@ func (s *InternalAppService) resolveModelAppCloudStorageMounts(ctx context.Conte
 	return resolved, nil
 }
 
-func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMount) error {
+func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMount, additionalReservedPaths ...string) error {
+	reservedPaths := []string{modelPVCMountPath, huggingFaceCachePath}
+	reservedPaths = append(reservedPaths, additionalReservedPaths...)
 	seenMountPaths := make(map[string]struct{}, len(mounts))
 	for _, mount := range mounts {
 		cloudStorageID := strings.TrimSpace(mount.GetCloudStorageId())
@@ -143,8 +145,10 @@ func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMou
 			return fmt.Errorf("cloud storage mount path must be absolute")
 		}
 		mountPath = normalizeModelAppCloudStorageMountPath(mountPath)
-		if mountPath == modelPVCMountPath || mountPath == huggingFaceCachePath {
-			return fmt.Errorf("cloud storage mount path is reserved for model cache: %s", mountPath)
+		for _, reservedPath := range reservedPaths {
+			if pathIsWithin(mountPath, reservedPath) {
+				return fmt.Errorf("cloud storage mount path is reserved for model cache: %s", mountPath)
+			}
 		}
 		if _, ok := seenMountPaths[mountPath]; ok {
 			return fmt.Errorf("cloud storage mount path must be unique: %s", mountPath)
@@ -152,6 +156,21 @@ func validateModelAppCloudStorageMounts(mounts []*cloudstoragepb.CloudStorageMou
 		seenMountPaths[mountPath] = struct{}{}
 	}
 	return nil
+}
+
+func pathIsWithin(candidate, parent string) bool {
+	candidate = normalizeModelAppCloudStorageMountPath(candidate)
+	parent = normalizeModelAppCloudStorageMountPath(parent)
+	return parent != "." && (candidate == parent || strings.HasPrefix(candidate, parent+"/"))
+}
+
+func modelAppInputModelPath(input *flyteapp.ModelAppInput) string {
+	modelCode := strings.TrimSpace(input.GetCode())
+	if modelCode == "" {
+		modelCode = safeDNSLabel(firstNonEmpty(input.GetId(), input.GetName()), 30)
+	}
+	modelPath, _ := modelDownloadCodes(input, modelCode)
+	return modelPath
 }
 
 func normalizeModelAppCloudStorageMountPath(mountPath string) string {
@@ -417,10 +436,12 @@ func modelInputs(input *flyteapp.ModelAppInput, modelCode, modelPath, pvcName st
 	}
 	if gpu := def.GetGpu(); gpu > 0 {
 		items = append(items, stringInput("gpu", strconv.FormatUint(uint64(gpu), 10)))
-		key := strings.TrimSpace(def.GetGpuKey())
-		if key == "" {
-			key = defaultGPUResourceKey
-		}
+	}
+	key := strings.TrimSpace(def.GetGpuKey())
+	if key == "" && def.GetGpu() > 0 {
+		key = defaultGPUResourceKey
+	}
+	if key != "" {
 		items = append(items, stringInput("gpu_key", key))
 	}
 	return &flyteapp.InputList{Items: items}
