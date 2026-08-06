@@ -332,4 +332,42 @@ describe("model app helpers", () => {
     ).toBe("云存储挂载路径必须为绝对路径");
     expect(validateModelAppFormValues(defaultModelAppFormValues)).toBeNull();
   });
+
+  it.each(["", " ", "1.5", "1gpu", "NaN", "-1"])(
+    "rejects an invalid GPU count of %j",
+    (gpu) => {
+      expect(
+        validateModelAppFormValues({
+          ...defaultModelAppFormValues,
+          gpu,
+        }),
+      ).toBe("GPU 必须是非负整数");
+    },
+  );
+
+  it.each(["0", "1", "16"])("accepts a GPU count of %s", (gpu) => {
+    expect(
+      validateModelAppFormValues({
+        ...defaultModelAppFormValues,
+        gpu,
+      }),
+    ).toBeNull();
+  });
+
+  it("does not silently truncate an invalid GPU count in update requests", () => {
+    expect(() =>
+      buildUpdateModelAppRequest({
+        appId: {
+          org: "aione",
+          project: "flytesnacks",
+          domain: "development",
+          name: "qwen25-15b",
+        },
+        values: {
+          ...defaultModelAppFormValues,
+          gpu: "1.5",
+        },
+      }),
+    ).toThrow("GPU 必须是非负整数");
+  });
 });

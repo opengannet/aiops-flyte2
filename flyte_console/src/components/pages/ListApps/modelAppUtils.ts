@@ -136,7 +136,7 @@ export function buildCreateModelAppRequest({
     .filter((source) => source.id.length > 0)
     .map((source) => create(ModelCodeSourceSchema, source));
 
-  const gpu = Number.parseInt(values.gpu.trim() || "0", 10);
+  const gpu = parseModelGpu(values.gpu);
   return create(CreateModelAppRequestSchema, {
     model: create(ModelAppInputSchema, {
       org,
@@ -151,7 +151,7 @@ export function buildCreateModelAppRequest({
       resourceDefinition: create(ModelResourceDefinitionSchema, {
         cpu: values.cpu.trim(),
         memory: values.memory.trim(),
-        gpu: Number.isFinite(gpu) && gpu > 0 ? gpu : 0,
+        gpu,
         gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
       }),
       cloudStorageMounts: values.cloudStorageMounts.map((mount) =>
@@ -168,7 +168,7 @@ export function buildUpdateModelAppRequest({
   appId,
   values,
 }: BuildUpdateModelAppRequestInput): UpdateModelAppRequest {
-  const gpu = Number.parseInt(values.gpu.trim() || "0", 10);
+  const gpu = parseModelGpu(values.gpu);
   return create(UpdateModelAppRequestSchema, {
     appId: create(IdentifierSchema, appId),
     name: values.name.trim(),
@@ -177,7 +177,7 @@ export function buildUpdateModelAppRequest({
     resourceDefinition: create(ModelResourceDefinitionSchema, {
       cpu: values.cpu.trim(),
       memory: values.memory.trim(),
-      gpu: Number.isFinite(gpu) && gpu > 0 ? gpu : 0,
+      gpu,
       gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
     }),
     cloudStorageMounts: values.cloudStorageMounts.map((mount) =>
@@ -221,6 +221,11 @@ export function modelAppConfigToFormValues(
 }
 
 export function validateModelAppFormValues(values: ModelAppFormValues) {
+  try {
+    parseModelGpu(values.gpu);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   if (
     values.cloudStorageMounts.some(
       (mount) => !mount.mountPath.trim().startsWith("/"),
@@ -229,6 +234,18 @@ export function validateModelAppFormValues(values: ModelAppFormValues) {
     return "云存储挂载路径必须为绝对路径";
   }
   return null;
+}
+
+function parseModelGpu(value: string) {
+  const trimmed = value.trim();
+  if (!/^(0|[1-9]\d*)$/.test(trimmed)) {
+    throw new Error("GPU 必须是非负整数");
+  }
+  const gpu = Number(trimmed);
+  if (!Number.isSafeInteger(gpu)) {
+    throw new Error("GPU 必须是非负整数");
+  }
+  return gpu;
 }
 
 export function extractModelMetadata(app: App | undefined): ModelAppMetadata {

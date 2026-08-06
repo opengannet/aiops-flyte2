@@ -349,7 +349,9 @@ describe("CreateModelAppPage", () => {
 
     render(<CreateModelAppPage />);
 
-    expect(await screen.findByText("加载云存储失败")).toBeVisible();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("加载云存储失败");
+    expect(alert).toHaveAttribute("aria-live", "polite");
     expect(screen.queryByText("暂无可用云存储")).not.toBeInTheDocument();
   });
 });

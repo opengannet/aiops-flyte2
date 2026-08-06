@@ -37,7 +37,11 @@ export function ModelAppCloudStorageList({
   ];
 
   if (error) {
-    return <div className="text-sm text-red-500">{error}</div>;
+    return (
+      <div aria-live="polite" className="text-sm text-red-500" role="alert">
+        {error}
+      </div>
+    );
   }
   if (isLoading) {
     return <div className="text-sm dark:text-(--system-gray-6)">加载中</div>;

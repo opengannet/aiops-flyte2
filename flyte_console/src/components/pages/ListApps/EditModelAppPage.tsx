@@ -55,7 +55,7 @@ export function EditModelAppPage() {
   const [values, setValues] = useState<ModelAppFormValues>(
     defaultModelAppFormValues,
   );
-  const [tokenConfigured, setTokenConfigured] = useState(false);
+  const [tokenConfigured, setTokenConfigured] = useState<boolean[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -75,33 +75,55 @@ export function EditModelAppPage() {
     [org, params.domain, params.project],
   );
   const detailHref = `/v2/domain/${params.domain}/project/${params.project}/apps/${params.appId}`;
+  const configMatchesRoute = Boolean(
+    config?.appId &&
+      config.appId.org === org &&
+      config.appId.project === params.project &&
+      config.appId.domain === params.domain &&
+      config.appId.name === params.appId,
+  );
 
   useEffect(() => {
     let cancelled = false;
+    setConfig(undefined);
+    setValues(defaultModelAppFormValues);
+    setTokenConfigured([]);
+    setError("");
     if (!org || !params.appId || !params.domain || !params.project) {
+      setIsLoading(false);
       return;
     }
+    const requestedAppId = {
+      org,
+      project: params.project,
+      domain: params.domain,
+      name: params.appId,
+    };
     setIsLoading(true);
-    setError("");
     client
       .getModelAppConfig(
         create(GetModelAppConfigRequestSchema, {
-          appId: create(IdentifierSchema, {
-            org,
-            project: params.project,
-            domain: params.domain,
-            name: params.appId,
-          }),
+          appId: create(IdentifierSchema, requestedAppId),
         }),
       )
       .then((response) => {
         if (cancelled) return;
-        if (!response.model?.appId) {
+        const responseAppId = response.model?.appId;
+        if (
+          !response.model ||
+          !responseAppId ||
+          responseAppId.org !== requestedAppId.org ||
+          responseAppId.project !== requestedAppId.project ||
+          responseAppId.domain !== requestedAppId.domain ||
+          responseAppId.name !== requestedAppId.name
+        ) {
           throw new Error("模型应用配置不存在");
         }
         setConfig(response.model);
         setValues(modelAppConfigToFormValues(response.model));
-        setTokenConfigured(response.model.codes[0]?.tokenConfigured ?? false);
+        setTokenConfigured(
+          response.model.codes.map((source) => source.tokenConfigured),
+        );
       })
       .catch((loadError) => {
         console.error("Error loading model app config", loadError);
@@ -195,7 +217,7 @@ export function EditModelAppPage() {
 
   const onSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!config?.appId || isLoading) return;
+    if (!config?.appId || !configMatchesRoute || isLoading) return;
     const validationError = validateModelAppFormValues(values);
     if (validationError) {
       setError(validationError);
@@ -257,8 +279,7 @@ export function EditModelAppPage() {
                   disabled={
                     isLoading ||
                     isSubmitting ||
-                    !config ||
-                    Boolean(error && !config)
+                    !configMatchesRoute
                   }
                   type="submit"
                 >
@@ -269,7 +290,11 @@ export function EditModelAppPage() {
             </div>
 
             {error && (
-              <div className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+              <div
+                aria-live="polite"
+                className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-500"
+                role="alert"
+              >
                 {error}
               </div>
             )}
