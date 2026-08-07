@@ -36,7 +36,7 @@ describe("ListAppsPage", () => {
   it("shows a Simplified Chinese entry for creating a model app", () => {
     render(<ListAppsPage />);
 
-    expect(screen.getByRole("heading", { name: "应用" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "模型部署" })).toBeInTheDocument();
     expect(
       screen.getByRole("link", { name: "创建模型应用" }),
     ).toHaveAttribute(

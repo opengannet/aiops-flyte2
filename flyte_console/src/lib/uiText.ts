@@ -6,7 +6,7 @@ export const uiText = {
   actions: "操作",
   apiKeys: "大模型",
   addTrigger: "添加触发器",
-  apps: "应用",
+  apps: "模型部署",
   associatedTask: "关联任务",
   automationType: "自动化类型",
   clearAll: "全部清除",
