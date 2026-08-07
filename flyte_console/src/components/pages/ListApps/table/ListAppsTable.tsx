@@ -14,9 +14,10 @@ export const ListAppsTable = ({ data }: { data: App[] }) => {
     <VirtualizedTable<AppTableItem>
       columns={baseColumns}
       data={formattedApps}
-      getRowHref={(appRow) =>
-        `/domain/${appRow.id?.domain}/project/${appRow.id?.project}/apps/${appRow.id?.name}`
-      }
+      getRowHref={(appRow) => {
+        const appPath = `/domain/${appRow.id?.domain}/project/${appRow.id?.project}/apps/${appRow.id?.name}`
+        return appRow.type.toUpperCase() === 'VLLM' ? `${appPath}/edit` : appPath
+      }}
     />
   )
 }
