@@ -17,7 +17,7 @@ const nextProcess = spawn('node', ['server.js'], {
 })
 
 const proxyRequest = (targetOrigin, req, res, options = {}) => {
-  const target = new URL(req.url || '/', targetOrigin)
+  const target = new URL(options.requestPath || req.url || '/', targetOrigin)
   const headers = {
     ...req.headers,
     host: options.hostOverride || target.host,
@@ -59,6 +59,16 @@ const server = http.createServer((req, res) => {
     path === '/readyz'
   ) {
     proxyRequest(apiOrigin, req, res)
+    return
+  }
+
+  const legacyModelRun = path.match(/^\/api\/v1\/models\/([^/?]+)\/run(?=\?|$)/)
+  if (legacyModelRun) {
+    const modelID = legacyModelRun[1]
+    const suffix = path.slice(`/api/v1/models/${modelID}/run`.length)
+    proxyRequest(`http://127.0.0.1:${nextPort}`, req, res, {
+      requestPath: `/v2/api/aione/model/${modelID}/run${suffix}`,
+    })
     return
   }
 
