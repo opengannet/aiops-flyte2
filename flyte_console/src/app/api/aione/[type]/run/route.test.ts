@@ -113,7 +113,7 @@ const modelPayload = {
   name: "Qwen VLLM",
   id: "qwen-vllm",
   code: "qwen-local",
-  image: "vllm",
+  profile: "VLLM",
   param: "--served-model-name\nqwen-local",
   codes: [
     {
@@ -758,6 +758,28 @@ describe("aione external typed run route", () => {
         },
       },
     });
+  });
+
+  it("selects the model runtime from profile instead of image", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("http://localhost/v2/api/aione/model/run", {
+        method: "POST",
+        headers: { authorization: "Bearer external-key" },
+        body: JSON.stringify({
+          ...modelPayload,
+          image: "registry.example.com/ignored:latest",
+        }),
+      }),
+      { params: Promise.resolve({ type: "model" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(createModelAppMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: expect.objectContaining({ image: "vllm" }),
+      }),
+    );
   });
 
   it("registers model datastores and passes their mounts to the model app", async () => {

@@ -38,7 +38,7 @@ describe("external model run route", () => {
       domain: "development",
       name: "deepseek v4",
       code: "deepseek4.0",
-      image: "vllm",
+      profile: "VLLM",
       param: "--model\nxxxx\n--port\n9090",
       codes: [
         {
