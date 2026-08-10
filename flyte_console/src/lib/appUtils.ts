@@ -22,15 +22,14 @@ export const getLastDeployed = (appConditions: Condition[] | undefined) => {
 
 export const getLastDeployedData = (app: App | undefined) => {
   const lastDeployment = getLastDeployed(app?.status?.conditions);
+  const deployedTimestamp =
+    lastDeployment?.lastTransitionTime ?? app?.status?.createdAt;
   let relativeTime = "-";
-  if (lastDeployment?.lastTransitionTime) {
-    relativeTime = getRelativeDate(
-      lastDeployment?.lastTransitionTime,
-      "always",
-    );
+  if (deployedTimestamp) {
+    relativeTime = getRelativeDate(deployedTimestamp, "always");
   }
   return {
-    deployedTimestamp: lastDeployment?.lastTransitionTime,
+    deployedTimestamp,
     relativeTime,
     version: Number(lastDeployment?.revision).toString() || "-",
   };
