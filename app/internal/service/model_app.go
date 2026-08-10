@@ -339,6 +339,18 @@ func buildModelPodSpec(image string, args []string, port int32, resourceDefiniti
 		}},
 		EnableServiceLinks: boolPtr(false),
 	}
+	if nodeLabelKey := modelGPUNodeLabelKey(resourceDefinition); nodeLabelKey != "" {
+		podSpec.Affinity = &corev1.Affinity{NodeAffinity: &corev1.NodeAffinity{
+			RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:      nodeLabelKey,
+						Operator: corev1.NodeSelectorOpExists,
+					}},
+				}},
+			},
+		}}
+	}
 	if hasDownloader {
 		podSpec.InitContainers = []corev1.Container{{
 			Name:            "model-downloader",
@@ -376,15 +388,23 @@ func modelResourceRequirements(def *flyteapp.ModelResourceDefinition) corev1.Res
 		limits[corev1.ResourceMemory] = q
 	}
 	if gpu := def.GetGpu(); gpu > 0 {
-		key := strings.TrimSpace(def.GetGpuKey())
-		if key == "" {
-			key = defaultGPUResourceKey
-		}
+		key := modelGPUResourceKey(def)
 		q := k8sresource.MustParse(strconv.FormatUint(uint64(gpu), 10))
 		reqs[corev1.ResourceName(key)] = q
 		limits[corev1.ResourceName(key)] = q
 	}
 	return corev1.ResourceRequirements{Requests: reqs, Limits: limits}
+}
+
+func modelGPUResourceKey(def *flyteapp.ModelResourceDefinition) string {
+	if key := strings.TrimSpace(def.GetGpuKey()); key != "" {
+		return key
+	}
+	return defaultGPUResourceKey
+}
+
+func modelGPUNodeLabelKey(def *flyteapp.ModelResourceDefinition) string {
+	return strings.TrimSpace(def.GetGpuNodeLabelKey())
 }
 
 func resolveModelCacheSize(value string) (string, error) {
@@ -461,12 +481,11 @@ func modelInputs(input *flyteapp.ModelAppInput, modelCode, modelPath, pvcName, m
 	if gpu := def.GetGpu(); gpu > 0 {
 		items = append(items, stringInput("gpu", strconv.FormatUint(uint64(gpu), 10)))
 	}
-	key := strings.TrimSpace(def.GetGpuKey())
-	if key == "" && def.GetGpu() > 0 {
-		key = defaultGPUResourceKey
+	if def.GetGpu() > 0 || strings.TrimSpace(def.GetGpuKey()) != "" {
+		items = append(items, stringInput("gpu_key", modelGPUResourceKey(def)))
 	}
-	if key != "" {
-		items = append(items, stringInput("gpu_key", key))
+	if nodeLabelKey := modelGPUNodeLabelKey(def); nodeLabelKey != "" {
+		items = append(items, stringInput("gpu_node_label_key", nodeLabelKey))
 	}
 	return &flyteapp.InputList{Items: items}
 }

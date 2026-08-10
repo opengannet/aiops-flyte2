@@ -648,6 +648,8 @@ func (m *ModelResourceDefinition) validate(all bool) error {
 
 	// no validation rules for GpuKey
 
+	// no validation rules for GpuNodeLabelKey
+
 	if len(errors) > 0 {
 		return ModelResourceDefinitionMultiError(errors)
 	}

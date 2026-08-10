@@ -1318,6 +1318,12 @@ function buildExternalModelAppValues(payload: unknown) {
             "resourceDefinition.gpu",
           ),
           gpuKey:
+            stringField(resources, "gpu_resource_key") ||
+            stringField(resources, "gpuResourceKey") ||
+            "nvidia.com/gpu",
+          gpuNodeLabelKey:
+            stringField(resources, "gpu_node_label_key") ||
+            stringField(resources, "gpuNodeLabelKey") ||
             stringField(resources, "gpu_key") ||
             stringField(resources, "gpuKey"),
         }),

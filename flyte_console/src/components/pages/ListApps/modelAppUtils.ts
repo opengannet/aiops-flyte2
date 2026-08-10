@@ -42,6 +42,7 @@ export type ModelAppFormValues = {
   memory: string;
   gpu: string;
   gpuKey: string;
+  gpuNodeLabelKey: string;
   modelCacheSize: string;
 };
 
@@ -101,6 +102,7 @@ export const defaultModelAppFormValues: ModelAppFormValues = {
   memory: "16Gi",
   gpu: "1",
   gpuKey: DEFAULT_GPU_KEY,
+  gpuNodeLabelKey: "",
   modelCacheSize: DEFAULT_MODEL_CACHE_SIZE_GI,
 };
 
@@ -151,6 +153,7 @@ export function buildCreateModelAppRequest({
         memory: values.memory.trim(),
         gpu,
         gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
+        gpuNodeLabelKey: values.gpuNodeLabelKey?.trim() || "",
       }),
       modelCacheSize,
     }),
@@ -173,6 +176,7 @@ export function buildUpdateModelAppRequest({
       memory: values.memory.trim(),
       gpu,
       gpuKey: values.gpuKey.trim() || DEFAULT_GPU_KEY,
+      gpuNodeLabelKey: values.gpuNodeLabelKey?.trim() || "",
     }),
     modelCacheSize,
     reason: "console model app edit",
@@ -202,6 +206,7 @@ export function modelAppConfigToFormValues(
     memory: resourceDefinition?.memory ?? "",
     gpu: String(resourceDefinition?.gpu ?? 0),
     gpuKey: resourceDefinition?.gpuKey || DEFAULT_GPU_KEY,
+    gpuNodeLabelKey: resourceDefinition?.gpuNodeLabelKey ?? "",
     modelCacheSize: quantityToGiIntegerString(
       config.modelCachePvc?.requestedSize,
     ),
