@@ -37,10 +37,10 @@ remote_env() {
     "$(shell_quote "$PROXY_URL")"
 }
 
-if command -v ssh.exe >/dev/null 2>&1 && command -v wslpath >/dev/null 2>&1; then
-  SSH_BIN=ssh.exe
-else
-  SSH_BIN=ssh
+SSH_BIN="${SSH_BIN:-ssh}"
+if ! command -v "$SSH_BIN" >/dev/null 2>&1; then
+  printf 'SSH client is unavailable: %s\n' "$SSH_BIN" >&2
+  exit 1
 fi
 
 remote_script="$(cat <<'REMOTE_SCRIPT'
