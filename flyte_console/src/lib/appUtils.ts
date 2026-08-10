@@ -34,3 +34,14 @@ export const getLastDeployedData = (app: App | undefined) => {
     version: Number(lastDeployment?.revision).toString() || "-",
   };
 };
+
+export const getCreatedData = (app: App | undefined) => {
+  const createdTimestamp = app?.status?.createdAt;
+  return {
+    deployedTimestamp: createdTimestamp,
+    relativeTime: createdTimestamp
+      ? getRelativeDate(createdTimestamp, "always")
+      : "-",
+    version: "-",
+  };
+};

@@ -53,7 +53,7 @@ export const baseColumns = [
         {info.getValue().relativeTime}
       </div>
     ),
-    header: () => <span className="text-nowrap">最近部署</span>,
+    header: () => <span className="text-nowrap">创建时间</span>,
     minSize: 130,
     size: 130,
   }),

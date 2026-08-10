@@ -9,6 +9,21 @@ import { describe, expect, it } from "vitest";
 import { baseColumns } from "./listAppsColumns";
 
 describe("baseColumns", () => {
+  it("labels the app timestamp column as creation time", () => {
+    const creationTimeColumn = baseColumns.find(
+      (column) =>
+        "accessorKey" in column && column.accessorKey === "lastDeployed",
+    );
+
+    if (!creationTimeColumn || typeof creationTimeColumn.header !== "function") {
+      throw new Error("Expected a creation-time column header");
+    }
+
+    render(creationTimeColumn.header({} as never));
+
+    expect(screen.getByText("创建时间")).toBeInTheDocument();
+  });
+
   it("renders only the display name in the name cell", () => {
     const nameColumn = baseColumns.find(
       (column) => "accessorKey" in column && column.accessorKey === "name",

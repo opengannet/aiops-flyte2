@@ -27,4 +27,22 @@ describe("formatAppForTable", () => {
 
     expect(formatAppForTable(app).name.displayText).toBe("qwen25-15b");
   });
+
+  it("always uses the app creation time for the creation-time column", () => {
+    const createdAt = { seconds: 1_700_000_000n, nanos: 0 };
+    const app = create(AppSchema, {
+      status: {
+        createdAt,
+        conditions: [
+          {
+            lastTransitionTime: { seconds: 1_800_000_000n, nanos: 0 },
+          },
+        ],
+      },
+    });
+
+    expect(formatAppForTable(app).lastDeployed).toMatchObject({
+      deployedTimestamp: createdAt,
+    });
+  });
 });
