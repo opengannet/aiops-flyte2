@@ -14,7 +14,7 @@ export const formatAppForTable = (app: App): AppTableItem => ({
     max: app.spec?.autoscaling?.replicas?.max || 0,
   },
   name: {
-    displayText: app.metadata?.id?.name || '-',
+    displayText: app.spec?.profile?.name || app.metadata?.id?.name || '-',
     endpoint: app.status?.ingress?.publicUrl || '-',
   },
   type: app.spec?.profile?.type || '-',

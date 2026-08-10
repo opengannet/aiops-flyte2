@@ -38,7 +38,12 @@ describe("ListAppsTable", () => {
           name: "qwen25-15b",
         },
       },
-      spec: { profile: { type: "VLLM" } },
+      spec: {
+        profile: {
+          type: "VLLM",
+          name: "Qwen2.5 1.5B Instruct",
+        },
+      },
     });
     const streamlitApp = create(AppSchema, {
       metadata: {
@@ -63,7 +68,9 @@ describe("ListAppsTable", () => {
 
     render(<ListAppsTable data={[vllmApp, streamlitApp, legacyVllmApp]} />);
 
-    expect(screen.getByRole("link", { name: "qwen25-15b" })).toHaveAttribute(
+    expect(
+      screen.getByRole("link", { name: "Qwen2.5 1.5B Instruct" }),
+    ).toHaveAttribute(
       "href",
       "/domain/development/project/flytesnacks/apps/qwen25-15b/edit",
     );
