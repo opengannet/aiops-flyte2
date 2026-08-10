@@ -36,3 +36,17 @@ func TestBuildModelPodSpecSeparatesGPUResourceFromNodeLabel(t *testing.T) {
 	assert.Equal(t, "nvidia.com/t4", terms[0].MatchExpressions[0].Key)
 	assert.Equal(t, corev1.NodeSelectorOpExists, terms[0].MatchExpressions[0].Operator)
 }
+
+func TestSplitModelArgsExpandsEscapedNewlines(t *testing.T) {
+	args := splitModelArgs(`--served-model-name\nqwen25-15b\n--max-num-seqs\n16\n--max-model-len\n8192\n--enforce-eager`)
+
+	assert.Equal(t, []string{
+		"--served-model-name",
+		"qwen25-15b",
+		"--max-num-seqs",
+		"16",
+		"--max-model-len",
+		"8192",
+		"--enforce-eager",
+	}, args)
+}

@@ -630,6 +630,11 @@ func splitModelArgs(param string) []string {
 	if strings.TrimSpace(param) == "" {
 		return nil
 	}
+	// External callers sometimes serialize the multiline form value as literal
+	// escape sequences. Normalize those before splitting so `\\n` has the same
+	// meaning as an actual line break in the model parameter editor.
+	param = strings.ReplaceAll(param, `\r\n`, "\n")
+	param = strings.ReplaceAll(param, `\n`, "\n")
 	param = strings.ReplaceAll(param, "\r\n", "\n")
 	parts := strings.Split(param, "\n")
 	args := make([]string, 0, len(parts))
