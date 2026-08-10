@@ -33,6 +33,8 @@ describe("baseColumns", () => {
       throw new Error("Expected a name column with a cell renderer");
     }
 
+    expect(nameColumn).toMatchObject({ minSize: 360, size: 360 });
+
     render(
       nameColumn.cell({
         getValue: () => ({

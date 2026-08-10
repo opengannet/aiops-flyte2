@@ -35,7 +35,8 @@ export const baseColumns = [
       </span>
     ),
     header: '名称',
-    minSize: 205,
+    minSize: 360,
+    size: 360,
   }),
   helper.accessor('type', {
     cell: (info) => (
