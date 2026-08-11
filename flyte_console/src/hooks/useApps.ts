@@ -15,6 +15,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { TailLogsRequestSchema } from '@/gen/flyteidl2/app/app_logs_payload_pb'
 import { AppLogsService } from '@/gen/flyteidl2/app/app_logs_service_pb'
 import {
+  DeleteRequestSchema,
   GetRequestSchema,
   ListRequestSchema,
   UpdateRequestSchema,
@@ -208,6 +209,29 @@ export const useStopApp = (props: { app: App }) =>
     ...props,
     desiredState: Spec_DesiredState.STOPPED,
   })
+
+export const useDeleteApp = ({ app }: { app: App }) => {
+  const client = useConnectRpcClient(AppService)
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () => {
+      const appId = app.metadata?.id
+      if (!appId) {
+        throw new Error('Could not delete app without an identifier')
+      }
+      return client.delete(create(DeleteRequestSchema, { appId }))
+    },
+    onSuccess: () => {
+      const domain = app.metadata?.id?.domain || ''
+      const org = app.metadata?.id?.org || ''
+      const projectId = app.metadata?.id?.project || ''
+      queryClient.invalidateQueries({
+        queryKey: getAppsQueryKey({ domain, projectId, org }),
+      })
+    },
+  })
+}
 
 const APP_LOGS_BUFFER_FLUSH_INTERVAL_MS = 100
 const APP_LOGS_BUFFER_MAX_SIZE = 1000

@@ -16,8 +16,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	appk8s "github.com/flyteorg/flyte/v2/app/internal/k8s"
 	aionedownloader "github.com/flyteorg/flyte/v2/flyteplugins/aione/downloader"
@@ -1333,15 +1335,79 @@ func TestUpdate_MissingID(t *testing.T) {
 
 // --- Delete ---
 
-func TestDelete_Success(t *testing.T) {
+func TestDelete_SucceedsForDeletableStatuses(t *testing.T) {
+	for _, status := range []flyteapp.Status_DeploymentStatus{
+		flyteapp.Status_DEPLOYMENT_STATUS_STOPPED,
+		flyteapp.Status_DEPLOYMENT_STATUS_UNASSIGNED,
+		flyteapp.Status_DEPLOYMENT_STATUS_FAILED,
+	} {
+		t.Run(status.String(), func(t *testing.T) {
+			k8s := &mockAppK8sClient{}
+			svc := NewInternalAppService(k8s)
+
+			appID := testAppID()
+			k8s.On("GetApp", mock.Anything, appID).Return(testAppWithStatus(status), nil)
+			k8s.On("Delete", mock.Anything, appID).Return(nil)
+
+			_, err := svc.Delete(context.Background(), connect.NewRequest(&flyteapp.DeleteRequest{AppId: appID}))
+			require.NoError(t, err)
+			k8s.AssertExpectations(t)
+		})
+	}
+}
+
+func TestDelete_RejectsNonDeletableStatuses(t *testing.T) {
+	for _, status := range []flyteapp.Status_DeploymentStatus{
+		flyteapp.Status_DEPLOYMENT_STATUS_UNSPECIFIED,
+		flyteapp.Status_DEPLOYMENT_STATUS_ASSIGNED,
+		flyteapp.Status_DEPLOYMENT_STATUS_PENDING,
+		flyteapp.Status_DEPLOYMENT_STATUS_STARTED,
+		flyteapp.Status_DEPLOYMENT_STATUS_ACTIVE,
+		flyteapp.Status_DEPLOYMENT_STATUS_SCALING_UP,
+		flyteapp.Status_DEPLOYMENT_STATUS_SCALING_DOWN,
+		flyteapp.Status_DEPLOYMENT_STATUS_DEPLOYING,
+	} {
+		t.Run(status.String(), func(t *testing.T) {
+			k8s := &mockAppK8sClient{}
+			svc := NewInternalAppService(k8s)
+
+			appID := testAppID()
+			k8s.On("GetApp", mock.Anything, appID).Return(testAppWithStatus(status), nil)
+
+			_, err := svc.Delete(context.Background(), connect.NewRequest(&flyteapp.DeleteRequest{AppId: appID}))
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+			k8s.AssertNotCalled(t, "Delete", mock.Anything, appID)
+			k8s.AssertExpectations(t)
+		})
+	}
+}
+
+func TestDelete_AppNotFound(t *testing.T) {
 	k8s := &mockAppK8sClient{}
 	svc := NewInternalAppService(k8s)
 
 	appID := testAppID()
-	k8s.On("Delete", mock.Anything, appID).Return(nil)
+	k8s.On("GetApp", mock.Anything, appID).Return(nil, k8serrors.NewNotFound(schema.GroupResource{Resource: "deployments"}, appID.Name))
 
 	_, err := svc.Delete(context.Background(), connect.NewRequest(&flyteapp.DeleteRequest{AppId: appID}))
-	require.NoError(t, err)
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
+	k8s.AssertNotCalled(t, "Delete", mock.Anything, appID)
+	k8s.AssertExpectations(t)
+}
+
+func TestDelete_PropagatesDeleteFailure(t *testing.T) {
+	k8s := &mockAppK8sClient{}
+	svc := NewInternalAppService(k8s)
+
+	appID := testAppID()
+	k8s.On("GetApp", mock.Anything, appID).Return(testAppWithStatus(flyteapp.Status_DEPLOYMENT_STATUS_STOPPED), nil)
+	k8s.On("Delete", mock.Anything, appID).Return(fmt.Errorf("delete failed"))
+
+	_, err := svc.Delete(context.Background(), connect.NewRequest(&flyteapp.DeleteRequest{AppId: appID}))
+	require.Error(t, err)
+	assert.Equal(t, connect.CodeInternal, connect.CodeOf(err))
 	k8s.AssertExpectations(t)
 }
 

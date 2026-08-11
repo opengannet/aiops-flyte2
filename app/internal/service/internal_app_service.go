@@ -130,7 +130,7 @@ func (s *InternalAppService) Update(
 	return connect.NewResponse(&flyteapp.UpdateResponse{App: app}), nil
 }
 
-// Delete removes all native Kubernetes resources for the given app.
+// Delete removes all native Kubernetes resources for an app in a deletable state.
 func (s *InternalAppService) Delete(
 	ctx context.Context,
 	req *connect.Request[flyteapp.DeleteRequest],
@@ -140,12 +140,36 @@ func (s *InternalAppService) Delete(
 		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("app_id is required"))
 	}
 
+	app, err := s.getApp(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	if !isAppDeletable(app) {
+		return nil, connect.NewError(connect.CodeFailedPrecondition, fmt.Errorf("app %s is not in a deletable state", appID.GetName()))
+	}
+
 	if err := s.k8s.Delete(ctx, appID); err != nil {
 		logger.Errorf(ctx, "Failed to delete app %s: %v", appID.GetName(), err)
 		return nil, connect.NewError(connect.CodeInternal, err)
 	}
 
 	return connect.NewResponse(&flyteapp.DeleteResponse{}), nil
+}
+
+func isAppDeletable(app *flyteapp.App) bool {
+	conditions := app.GetStatus().GetConditions()
+	if len(conditions) == 0 {
+		return false
+	}
+
+	switch conditions[len(conditions)-1].GetDeploymentStatus() {
+	case flyteapp.Status_DEPLOYMENT_STATUS_STOPPED,
+		flyteapp.Status_DEPLOYMENT_STATUS_UNASSIGNED,
+		flyteapp.Status_DEPLOYMENT_STATUS_FAILED:
+		return true
+	default:
+		return false
+	}
 }
 
 // List returns apps for the requested scope with pagination.
