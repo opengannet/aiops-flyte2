@@ -49,6 +49,7 @@ describe("model app helpers", () => {
         memory: " 16Gi ",
         gpu: "2",
         gpuKey: "example.com/gpu",
+        gpuNodeLabelKey: " nvidia.com/t4 ",
         modelCacheSize: "120",
       },
     });
@@ -69,6 +70,7 @@ describe("model app helpers", () => {
       memory: "16Gi",
       gpu: 2,
       gpuKey: "example.com/gpu",
+      gpuNodeLabelKey: "nvidia.com/t4",
     });
     expect(request.model?.cloudStorageMounts).toEqual([]);
     expect(request.model?.modelCacheSize).toBe("120Gi");
@@ -265,6 +267,7 @@ describe("model app helpers", () => {
       memory: "16Gi",
       gpu: "1",
       gpuKey: "nvidia.com/gpu",
+      gpuNodeLabelKey: "",
       modelCacheSize: "80",
     });
   });

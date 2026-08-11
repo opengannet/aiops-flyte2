@@ -50,7 +50,10 @@ message ModelResourceDefinition {
   string cpu = 1;
   string memory = 2;
   uint32 gpu = 3;
+  // gpu_key is the Kubernetes extended resource name, for example nvidia.com/gpu.
   string gpu_key = 4;
+  // gpu_node_label_key selects nodes advertising the requested GPU model, for example nvidia.com/t4=true.
+  string gpu_node_label_key = 5;
 }
 
 // Redacted repository source metadata shown when editing a model app.

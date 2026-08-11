@@ -118,6 +118,11 @@ const NODE_PORT_RETRIES = 3;
 const EXTERNAL_HAWK_LOG_LIMIT = 10000;
 const AUTO_REGISTERED_CLOUD_STORAGE_DESCRIPTION =
   "Auto-registered from external API datastore";
+// External model requests select a runtime profile instead of supplying an
+// arbitrary image. The backend resolves the VLLM alias to its configured image.
+const EXTERNAL_MODEL_PROFILE_IMAGES = {
+  VLLM: "vllm",
+} as const;
 const TASK_DELETABLE_KINDS = [
   {
     apiPath: "/apis/batch/v1",
@@ -1290,6 +1295,9 @@ function buildExternalModelAppValues(payload: unknown) {
   const modelCacheSize =
     stringField(object, "modelCacheSize") ||
     stringField(object, "model_cache_size");
+  const image = resolveExternalModelProfileImage(
+    requiredStringField(object, "profile"),
+  );
 
   return {
     sourceOrg,
@@ -1305,7 +1313,7 @@ function buildExternalModelAppValues(payload: unknown) {
         name,
         id,
         code,
-        image: stringField(object, "image") || "vllm",
+        image,
         param: stringField(object, "param"),
         modelCacheSize,
         codes: parseExternalModelCodeSources(object.codes),
@@ -1318,6 +1326,12 @@ function buildExternalModelAppValues(payload: unknown) {
             "resourceDefinition.gpu",
           ),
           gpuKey:
+            stringField(resources, "gpu_resource_key") ||
+            stringField(resources, "gpuResourceKey") ||
+            "nvidia.com/gpu",
+          gpuNodeLabelKey:
+            stringField(resources, "gpu_node_label_key") ||
+            stringField(resources, "gpuNodeLabelKey") ||
             stringField(resources, "gpu_key") ||
             stringField(resources, "gpuKey"),
         }),
@@ -1330,6 +1344,18 @@ function buildExternalModelAppValues(payload: unknown) {
       }),
     }),
   };
+}
+
+function resolveExternalModelProfileImage(profile: string) {
+  const normalizedProfile = profile.trim().toUpperCase();
+  const image =
+    EXTERNAL_MODEL_PROFILE_IMAGES[
+      normalizedProfile as keyof typeof EXTERNAL_MODEL_PROFILE_IMAGES
+    ];
+  if (!image) {
+    throw statusError("profile must be VLLM", 400);
+  }
+  return image;
 }
 
 function parseExternalModelCodeSources(value: unknown) {

@@ -162,6 +162,16 @@ export function ModelAppFormFields({
                 }
               />
             </ModelAppField>
+            <ModelAppField label="GPU 节点标签键">
+              <input
+                className={modelAppInputClassName}
+                value={values.gpuNodeLabelKey}
+                placeholder="例如 nvidia.com/t4"
+                onChange={(event) =>
+                  onFieldChange("gpuNodeLabelKey", event.target.value)
+                }
+              />
+            </ModelAppField>
           </div>
         </section>
       </div>

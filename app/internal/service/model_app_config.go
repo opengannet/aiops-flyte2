@@ -388,6 +388,7 @@ func modelResourcesFromContainer(app *flyteapp.App, container *corev1.Container)
 		definition.Memory = quantity.String()
 	}
 	definition.GpuKey = modelInputString(app, "gpu_key")
+	definition.GpuNodeLabelKey = modelInputString(app, "gpu_node_label_key")
 	if definition.GpuKey != "" {
 		if quantity, ok := container.Resources.Requests[corev1.ResourceName(definition.GpuKey)]; ok {
 			value, _ := quantity.AsInt64()
