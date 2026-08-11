@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import zipfile
@@ -20,6 +21,8 @@ REQUEST_TIMEOUT_SECONDS = 60
 GIT_LFS_POINTER_PREFIX = b"version https://git-lfs.github.com/spec/v1"
 GIT_LFS_POINTER_SCAN_BYTES = 1024
 GIT_LFS_POINTER_MAX_SIZE = 1024 * 1024
+MAX_DOWNLOAD_ATTEMPTS = 2
+SAFETENSORS_SUFFIX = ".safetensors"
 
 
 @dataclass
@@ -103,19 +106,33 @@ def _clone_git(data: GitData) -> None:
         raise ValueError("target directory is required")
 
     if os.path.exists(data.target_dir) and os.listdir(data.target_dir):
-        if _contains_git_lfs_pointer(data.target_dir):
-            flush_print(f"Target directory {data.target_dir} contains Git LFS pointer files; redownloading")
-            _clear_directory(data.target_dir)
-        else:
+        integrity_error = _model_integrity_error(data.target_dir)
+        if integrity_error is None:
             flush_print(f"Target directory {data.target_dir} is not empty; reusing existing contents")
             _make_tree_readable(data.target_dir)
             return
+        flush_print(f"Target directory {data.target_dir} failed integrity validation: {integrity_error}; redownloading")
+        _clear_directory(data.target_dir)
 
-    if _download_gitlab_archive(data):
-        return
-    if _download_gitea_archive(data):
-        return
-    _git_clone_fallback(data)
+    last_error: Exception | None = None
+    for attempt in range(1, MAX_DOWNLOAD_ATTEMPTS + 1):
+        try:
+            if not _download_gitlab_archive(data) and not _download_gitea_archive(data):
+                _git_clone_fallback(data)
+
+            integrity_error = _model_integrity_error(data.target_dir)
+            if integrity_error is not None:
+                raise RuntimeError(f"downloaded model failed integrity validation: {integrity_error}")
+            return
+        except Exception as exc:
+            last_error = exc
+            _clear_directory(data.target_dir)
+            if attempt < MAX_DOWNLOAD_ATTEMPTS:
+                flush_print(f"Model download attempt {attempt} failed: {exc}; clearing target directory and retrying")
+
+    raise RuntimeError(
+        f"model download failed integrity validation after {MAX_DOWNLOAD_ATTEMPTS} attempts"
+    ) from last_error
 
 
 def _download_gitlab_archive(data: GitData) -> bool:
@@ -196,6 +213,102 @@ def _git_lfs_pull(target_dir: str) -> None:
         raise RuntimeError(f"git lfs pull failed with exit code {exc.returncode}") from exc
     if _contains_git_lfs_pointer(target_dir):
         raise RuntimeError("git lfs pull completed but Git LFS pointer files remain")
+
+
+def _model_integrity_error(directory: str) -> str | None:
+    if _contains_git_lfs_pointer(directory):
+        return "contains Git LFS pointer files"
+
+    for root, dirs, files in os.walk(directory):
+        dirs[:] = [dirname for dirname in dirs if dirname != ".git"]
+        for filename in files:
+            if not filename.endswith(SAFETENSORS_SUFFIX):
+                continue
+            filepath = os.path.join(root, filename)
+            error = _safetensors_integrity_error(filepath)
+            if error is not None:
+                return f"invalid safetensors file {filepath}: {error}"
+
+    if _repository_uses_git_lfs(directory):
+        try:
+            subprocess.run(
+                ["git", "lfs", "fsck"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=directory,
+            )
+        except FileNotFoundError:
+            return "git-lfs is required to verify Git LFS objects"
+        except subprocess.CalledProcessError:
+            return "Git LFS object integrity check failed"
+    return None
+
+
+def _repository_uses_git_lfs(directory: str) -> bool:
+    if not os.path.isdir(os.path.join(directory, ".git")):
+        return False
+    attributes_file = os.path.join(directory, ".gitattributes")
+    try:
+        with open(attributes_file, "rb") as source:
+            return b"filter=lfs" in source.read()
+    except OSError:
+        return False
+
+
+def _safetensors_integrity_error(filepath: str) -> str | None:
+    try:
+        file_size = os.path.getsize(filepath)
+        if file_size < 8:
+            return "missing eight-byte header length"
+        with open(filepath, "rb") as source:
+            header_size_bytes = source.read(8)
+            if len(header_size_bytes) != 8:
+                return "incomplete header length"
+            header_size = struct.unpack("<Q", header_size_bytes)[0]
+            data_size = file_size - 8 - header_size
+            if data_size < 0:
+                return "header exceeds file size"
+            header_bytes = source.read(header_size)
+            if len(header_bytes) != header_size:
+                return "incomplete header"
+    except OSError as exc:
+        return str(exc)
+
+    try:
+        header = json.loads(header_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return f"invalid JSON header: {exc}"
+    if not isinstance(header, dict):
+        return "header must be a JSON object"
+
+    offsets: list[tuple[int, int]] = []
+    for tensor_name, metadata in header.items():
+        if tensor_name == "__metadata__":
+            continue
+        if not isinstance(metadata, dict):
+            return f"tensor {tensor_name} metadata must be an object"
+        data_offsets = metadata.get("data_offsets")
+        if (
+            not isinstance(data_offsets, list)
+            or len(data_offsets) != 2
+            or any(not isinstance(value, int) or isinstance(value, bool) for value in data_offsets)
+        ):
+            return f"tensor {tensor_name} has invalid data offsets"
+        start, end = data_offsets
+        if start < 0 or end < start or end > data_size:
+            return f"tensor {tensor_name} data offsets are outside the data section"
+        offsets.append((start, end))
+
+    expected_start = 0
+    for start, end in sorted(offsets):
+        if start != expected_start:
+            return "tensor data does not fully cover the data section"
+        expected_start = end
+    if expected_start != data_size:
+        return "tensor data does not fully cover the data section"
+    return None
 
 
 def _repo_url_with_token(repo_url: str, token: str) -> str:
