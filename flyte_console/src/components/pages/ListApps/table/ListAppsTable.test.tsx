@@ -11,7 +11,7 @@ import { AppSchema } from "@/gen/flyteidl2/app/app_definition_pb";
 import { ListAppsTable } from "./ListAppsTable";
 
 vi.mock("@/components/Tables", () => ({
-  VirtualizedTable: ({
+  Table: ({
     data,
     getRowHref,
   }: {
