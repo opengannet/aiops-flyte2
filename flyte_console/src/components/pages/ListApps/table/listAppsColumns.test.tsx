@@ -15,13 +15,31 @@ describe("baseColumns", () => {
         "accessorKey" in column && column.accessorKey === "lastDeployed",
     );
 
-    if (!creationTimeColumn || typeof creationTimeColumn.header !== "function") {
+    if (
+      !creationTimeColumn ||
+      typeof creationTimeColumn.header !== "function"
+    ) {
       throw new Error("Expected a creation-time column header");
     }
 
     render(creationTimeColumn.header({} as never));
 
     expect(screen.getByText("创建时间")).toBeInTheDocument();
+  });
+
+  it("labels and sizes the actions column", () => {
+    const actionsColumn = baseColumns.find(
+      (column) => "accessorKey" in column && column.accessorKey === "actions",
+    );
+
+    if (!actionsColumn || typeof actionsColumn.header !== "function") {
+      throw new Error("Expected an actions column header");
+    }
+
+    expect(actionsColumn).toMatchObject({ minSize: 80, size: 80 });
+    render(actionsColumn.header({} as never));
+
+    expect(screen.getByText("操作")).toBeInTheDocument();
   });
 
   it("renders only the display name in the name cell", () => {

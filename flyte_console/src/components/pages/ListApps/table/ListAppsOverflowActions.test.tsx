@@ -22,8 +22,17 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/components/Popovers", () => ({
-  PopoverMenu: ({ items }: { items: Array<Record<string, unknown>> }) => (
+  PopoverMenu: ({
+    items,
+    triggerAriaLabel,
+    triggerTooltip,
+  }: {
+    items: Array<Record<string, unknown>>;
+    triggerAriaLabel?: string;
+    triggerTooltip?: string;
+  }) => (
     <div>
+      <button aria-label={triggerAriaLabel} title={triggerTooltip} />
       {items
         .filter((item) => item.type !== "divider")
         .map((item) => (
@@ -56,6 +65,18 @@ describe("ListAppsOverflowActions", () => {
     });
   });
   afterEach(cleanup);
+
+  it("labels the overflow trigger as more actions", () => {
+    const app = create(AppSchema, {
+      metadata: { id: { name: "qwen25-15b" } },
+    });
+    render(<ListAppsOverflowActions app={app} />);
+
+    expect(screen.getByRole("button", { name: "更多操作" })).toHaveAttribute(
+      "title",
+      "更多操作",
+    );
+  });
 
   it("shows Edit for VLLM apps and navigates to the edit route", async () => {
     const app = create(AppSchema, {
@@ -105,9 +126,7 @@ describe("ListAppsOverflowActions", () => {
     });
     render(<ListAppsOverflowActions app={app} />);
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "查看应用详情" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "查看应用详情" }));
 
     expect(mocks.push).toHaveBeenCalledWith(
       "/domain/development/project/aione/apps/qwen25-15b",
@@ -118,9 +137,7 @@ describe("ListAppsOverflowActions", () => {
     const app = create(AppSchema, {
       metadata: { id: { name: "stopped-app" } },
       status: {
-        conditions: [
-          { deploymentStatus: Status_DeploymentStatus.STOPPED },
-        ],
+        conditions: [{ deploymentStatus: Status_DeploymentStatus.STOPPED }],
       },
     });
     render(<ListAppsOverflowActions app={app} />);
@@ -149,16 +166,14 @@ describe("ListAppsOverflowActions", () => {
   it("copies the exact app name and endpoint values", async () => {
     const app = create(AppSchema, {
       metadata: { id: { name: "qwen25-15b" } },
-      status: { ingress: { publicUrl: "https://apps.example.test/qwen25-15b" } },
+      status: {
+        ingress: { publicUrl: "https://apps.example.test/qwen25-15b" },
+      },
     });
     render(<ListAppsOverflowActions app={app} />);
 
-    await userEvent.click(
-      screen.getByRole("button", { name: "复制应用名称" }),
-    );
-    await userEvent.click(
-      screen.getByRole("button", { name: "复制访问地址" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "复制应用名称" }));
+    await userEvent.click(screen.getByRole("button", { name: "复制访问地址" }));
 
     expect(mocks.writeText).toHaveBeenNthCalledWith(1, "qwen25-15b");
     expect(mocks.writeText).toHaveBeenNthCalledWith(
