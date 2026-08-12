@@ -25,12 +25,20 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   try {
     const { type, id } = await context.params;
+    const externalType = parseAioneExternalType(type ?? "");
     const result = await getAioneExternalStatus(
-      parseAioneExternalType(type ?? ""),
+      externalType,
       decodeURIComponent(id ?? ""),
+      externalType === "model" ? modelScope(request.nextUrl.searchParams) : undefined,
     );
     return okEnvelope(result);
   } catch (error) {
     return errorEnvelope(error);
   }
+}
+
+function modelScope(params: URLSearchParams) {
+  const project = params.get("project")?.trim();
+  const domain = params.get("domain")?.trim();
+  return project && domain ? { project, domain } : undefined;
 }

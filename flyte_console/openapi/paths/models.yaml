@@ -1,0 +1,24 @@
+get:
+  operationId: listModelApplications
+  tags: [Models]
+  summary: List VLLM model applications in a project and domain
+  security: [{ apiKeyAuth: [] }]
+  parameters:
+    - { name: project, in: query, required: true, schema: { type: string } }
+    - { name: domain, in: query, required: true, schema: { type: string } }
+    - { name: p, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+    - { name: page_size, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+    - { name: keyword, in: query, schema: { type: string } }
+    - name: status
+      in: query
+      schema:
+        oneOf:
+          - { type: integer, minimum: 0, maximum: 10 }
+          - { type: string, enum: [UNASSIGNED, ASSIGNED, PENDING, STOPPED, FAILED, ACTIVE, SCALING_UP, SCALING_DOWN, DEPLOYING] }
+  responses:
+    '200':
+      description: Paginated VLLM applications.
+      content: { application/json: { schema: { $ref: ../aione.yaml#/components/schemas/ModelListEnvelope } } }
+    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

@@ -44,6 +44,12 @@ paths:
     $ref: ./paths/pvc-size.yaml
   /api/aione/apikey/{modelCode}:
     $ref: ./paths/apikey.yaml
+  /api/aione/models:
+    $ref: ./paths/models.yaml
+  /api/aione/model/{id}:
+    $ref: ./paths/model.yaml
+  /api/aione/model/{id}/start:
+    $ref: ./paths/model-start.yaml
 components:
   securitySchemes:
     bearerAuth:
@@ -97,6 +103,14 @@ components:
       $ref: ./components/schemas.yaml#/ModelRunRequest
     ModelStatusEnvelope:
       $ref: ./components/schemas.yaml#/ModelStatusEnvelope
+    ModelSummary:
+      $ref: ./components/schemas.yaml#/ModelSummary
+    ModelListEnvelope:
+      $ref: ./components/schemas.yaml#/ModelListEnvelope
+    ModelDetailEnvelope:
+      $ref: ./components/schemas.yaml#/ModelDetailEnvelope
+    ModelUpdateRequest:
+      $ref: ./components/schemas.yaml#/ModelUpdateRequest
     LogEnvelope:
       $ref: ./components/schemas.yaml#/LogEnvelope
     MonitorEnvelope:

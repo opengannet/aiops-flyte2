@@ -1,0 +1,13 @@
+post:
+  operationId: startModelApplication
+  tags: [Models]
+  summary: Set the model application's desired state to active
+  security: [{ apiKeyAuth: [] }]
+  parameters:
+    - $ref: ../aione.yaml#/components/parameters/id
+    - { name: project, in: query, required: true, schema: { type: string } }
+    - { name: domain, in: query, required: true, schema: { type: string } }
+  responses:
+    '200': { description: Start requested, content: { application/json: { schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope } } } }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
