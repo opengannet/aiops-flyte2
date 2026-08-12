@@ -3,18 +3,22 @@
  */
 
 import { NextRequest } from "next/server";
+import { authenticateAioneRequest } from "@/server/aione/helpers";
 import { createLlmApiKey } from "@/server/llm/token";
-import { errorEnvelope, okEnvelope } from "@/server/http/response";
+import { errorEnvelope, okEnvelope, statusError } from "@/server/http/response";
 
 export const runtime = "nodejs";
 
 type RouteContext = {
-  params:
-    | Promise<{ modelCode?: string[] }>
-    | { modelCode?: string[] };
+  params: Promise<{ modelCode?: string[] }> | { modelCode?: string[] };
 };
 
-export async function POST(_request: NextRequest, context: RouteContext) {
+export async function POST(request: NextRequest, context: RouteContext) {
+  if (
+    !authenticateAioneRequest(request.headers, process.env.EXTERNAL_API_KEYS)
+  ) {
+    return errorEnvelope(statusError("unauthorized", 401));
+  }
   try {
     const { modelCode } = await context.params;
     const model = (modelCode ?? []).join("/");

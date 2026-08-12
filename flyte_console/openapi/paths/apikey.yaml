@@ -2,8 +2,8 @@ post:
   operationId: getModelApiKey
   tags: [Models]
   summary: Get a model API key
-  description: This route does not use AIONE external API-key authentication.
-  security: []
+  description: Generate a model invocation API key after authenticating with the AIONE external API key.
+  security: [{ apiKeyAuth: [] }]
   parameters:
     - $ref: ../aione.yaml#/components/parameters/modelCode
   responses:
@@ -14,4 +14,5 @@ post:
           schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
           example: { status: 200, data: sk-example }
     '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
     '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

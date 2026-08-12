@@ -521,18 +521,40 @@ export async function listAioneModelApps({
       disableIdentityEnrichment: true,
     }),
   );
+  return selectAioneModelApps(response.apps, {
+    page: normalizedPage,
+    pageSize: normalizedPageSize,
+    keyword,
+    status,
+  });
+}
+
+export function selectAioneModelApps(
+  apps: App[],
+  {
+    page,
+    pageSize,
+    keyword = "",
+    status = "",
+  }: {
+    page: number;
+    pageSize: number;
+    keyword?: string;
+    status?: string;
+  },
+) {
+  const normalizedPage = positivePage(page, "p");
+  const normalizedPageSize = positivePage(pageSize, "page_size", 100);
   const normalizedKeyword = keyword.trim().toLowerCase();
   const normalizedStatus = normalizeDeploymentStatusFilter(status);
-  const filtered = response.apps
+  const filtered = apps
     .filter((app) => app.spec?.profile?.type?.trim().toUpperCase() === "VLLM")
     .filter((app) => {
       if (!normalizedKeyword) return true;
       const metadata = externalModelMetadata(app);
-      return [
-        app.metadata?.id?.name,
-        metadata.code,
-        metadata.displayName,
-      ].some((value) => value?.toLowerCase().includes(normalizedKeyword));
+      return [app.metadata?.id?.name, metadata.code, metadata.displayName].some(
+        (value) => value?.toLowerCase().includes(normalizedKeyword),
+      );
     })
     .filter((app) => {
       if (normalizedStatus === undefined) return true;
@@ -564,9 +586,7 @@ export async function getAioneModelApp(scope: AioneModelScope) {
         identifier: { case: "appId", value: appId },
       }),
     ),
-    client.getModelAppConfig(
-      create(GetModelAppConfigRequestSchema, { appId }),
-    ),
+    client.getModelAppConfig(create(GetModelAppConfigRequestSchema, { appId })),
   ]);
   const app = appResponse.app;
   if (!app || app.spec?.profile?.type?.trim().toUpperCase() !== "VLLM") {
@@ -592,8 +612,7 @@ export async function getAioneModelApp(scope: AioneModelScope) {
                 cpu: configResponse.model.resourceDefinition.cpu,
                 memory: configResponse.model.resourceDefinition.memory,
                 gpu: configResponse.model.resourceDefinition.gpu,
-                gpuResourceKey:
-                  configResponse.model.resourceDefinition.gpuKey,
+                gpuResourceKey: configResponse.model.resourceDefinition.gpuKey,
                 gpuNodeLabelKey:
                   configResponse.model.resourceDefinition.gpuNodeLabelKey,
               }
@@ -761,7 +780,7 @@ function requiredScopeField(value: string, field: string) {
   return normalized;
 }
 
-function externalModelIdentifier(scope: AioneModelScope) {
+export function externalModelIdentifier(scope: AioneModelScope) {
   return create(IdentifierSchema, {
     org: externalModelOrg(),
     project: requiredScopeField(scope.project, "project"),
@@ -871,7 +890,11 @@ function normalizeDeploymentStatusFilter(value: string) {
 }
 
 function positivePage(value: number, field: string, maximum?: number) {
-  if (!Number.isSafeInteger(value) || value < 1 || (maximum && value > maximum)) {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    (maximum && value > maximum)
+  ) {
     throw statusError(
       maximum
         ? `${field} must be an integer between 1 and ${maximum}`
@@ -895,7 +918,9 @@ function protoTimestampIso(
 ) {
   const seconds = protoTimestampSeconds(value);
   if (seconds === undefined) return "";
-  return new Date(seconds * 1000 + (value?.nanos ?? 0) / 1_000_000).toISOString();
+  return new Date(
+    seconds * 1000 + (value?.nanos ?? 0) / 1_000_000,
+  ).toISOString();
 }
 
 function modelCacheSizeField(object: Record<string, unknown>) {
@@ -907,7 +932,10 @@ function modelCacheSizeField(object: Record<string, unknown>) {
 
 function assertPositiveGi(value: string) {
   if (!/^[1-9]\d*Gi$/.test(value)) {
-    throw statusError("modelCacheSize must be a positive integer Gi value", 400);
+    throw statusError(
+      "modelCacheSize must be a positive integer Gi value",
+      400,
+    );
   }
 }
 
