@@ -26,8 +26,6 @@ tags:
 paths:
   /api/aione/{type}/run:
     $ref: ./paths/run.yaml
-  /api/aione/model/{id}/run:
-    $ref: ./paths/model-run.yaml
   /api/aione/{type}/{id}/status:
     $ref: ./paths/status.yaml
   /api/aione/{type}/{id}/stop:

@@ -56,8 +56,12 @@ TaskRunRequest:
     resourceDefinition: { type: object }
 ModelRunRequest:
   type: object
+  required: [project, domain, id]
   properties:
-    id: { type: string, description: Optional when supplied by the path. }
+    org: { type: string }
+    project: { type: string }
+    domain: { type: string }
+    id: { type: string, description: Unique model identifier. }
     name: { type: string }
     code: { type: string }
     profile: { type: string, enum: [VLLM] }

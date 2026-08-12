@@ -2,7 +2,6 @@
 import json
 import sys
 import urllib.error
-import urllib.parse
 import urllib.request
 
 from env_config import require_config
@@ -26,9 +25,8 @@ def load_config() -> dict[str, str]:
     return require_config(REQUIRED_KEYS)
 
 
-def build_run_path(config: dict[str, str]) -> str:
-    model_id = urllib.parse.quote(config["MODEL_ID"], safe="")
-    return f"/api/v1/models/{model_id}/run"
+def build_run_path() -> str:
+    return "/v2/api/aione/model/run"
 
 
 def build_payload() -> dict:
@@ -66,7 +64,7 @@ def build_payload() -> dict:
 
 def post_model(payload: dict) -> dict:
     config = load_config()
-    url = config["ENDPOINT"].rstrip("/") + build_run_path(config)
+    url = config["ENDPOINT"].rstrip("/") + build_run_path()
     print("URL:", url)
     request = urllib.request.Request(
         url,

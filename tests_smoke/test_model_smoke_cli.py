@@ -92,7 +92,10 @@ class ModelSmokeCliTests(unittest.TestCase):
             },
             result,
         )
-        self.assertEqual("URL: http://example.test/api/v1/models/mod-test/run", output.getvalue().splitlines()[0])
+        self.assertEqual(
+            "URL: http://example.test/v2/api/aione/model/run",
+            output.getvalue().splitlines()[0],
+        )
         request, timeout = requests[0]
         self.assertEqual(60, timeout)
         self.assertEqual("Bearer test-key", request.headers["Authorization"])

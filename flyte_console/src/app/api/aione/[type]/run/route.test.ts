@@ -742,22 +742,35 @@ describe("aione external typed run route", () => {
     expect(body).toEqual({
       status: 200,
       data: {
-        id: "qwen-vllm",
-        source: {
-          org: "external-system",
-          id: "qwen-vllm",
-        },
-        app: {
-          org: "aione",
-          project: "aione",
-          domain: "development",
-          name: "qwen-vllm",
-          code: "qwen-local",
-          profile: "VLLM",
-          url: "http://qwen-vllm-aione-development.example.com",
-        },
+        name: "qwen-vllm",
+        code: "qwen-local",
+        profile: "VLLM",
+        url: "http://qwen-vllm-aione-development.example.com",
       },
     });
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["blank", "  "],
+    ["non-string", 123],
+  ])("requires a valid model id when it is %s", async (_label, id) => {
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("http://localhost/v2/api/aione/model/run", {
+        method: "POST",
+        headers: { authorization: "Bearer external-key" },
+        body: JSON.stringify({ ...modelPayload, id }),
+      }),
+      { params: Promise.resolve({ type: "model" }) },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      status: 400,
+      message: "id is required",
+    });
+    expect(createModelAppMock).not.toHaveBeenCalled();
   });
 
   it("selects the model runtime from profile instead of image", async () => {

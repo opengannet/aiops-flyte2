@@ -34,8 +34,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
       payload,
     });
     const result = await createAioneExternalRun(externalType, payload);
-    return okEnvelope(result);
+    return okEnvelope(
+      externalType === "model" ? modelRunResponse(result) : result,
+    );
   } catch (error) {
     return errorEnvelope(error);
   }
+}
+
+function modelRunResponse(result: unknown) {
+  const app = (
+    result as {
+      app?: { name?: string; code?: string; profile?: string; url?: string };
+    }
+  ).app;
+  return {
+    name: app?.name ?? "",
+    code: app?.code ?? "",
+    profile: app?.profile ?? "",
+    url: app?.url ?? "",
+  };
 }

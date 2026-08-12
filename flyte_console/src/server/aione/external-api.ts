@@ -1279,12 +1279,9 @@ function buildExternalModelAppValues(payload: unknown) {
   const modelOrg = sourceOrg || internalOrg;
   const project = requiredStringField(object, "project");
   const domain = requiredStringField(object, "domain");
-  const id = stringField(object, "id");
+  const id = requiredStringField(object, "id");
   const code = stringField(object, "code") || id;
   const name = stringField(object, "name") || code || id;
-  if (!id && !code && !name) {
-    throw statusError("id, code, or name is required", 400);
-  }
   const defaultStorageClass =
     process.env.EXTERNAL_API_DEFAULT_STORAGE_CLASS?.trim() ||
     DEFAULT_AIONE_STORAGE_CLASS;
