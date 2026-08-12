@@ -14,11 +14,11 @@
   "license": "SEE LICENSE IN UNION-LICENSE.txt",
   "type": "module",
   "scripts": {
-    "dev": "node ./scripts/launchDev.js",
-    "dev:local": "cross-env NODE_OPTIONS='--inspect' next dev",
-    "dev:next": "cross-env NODE_OPTIONS='--inspect' next dev --experimental-https --experimental-https-key ./scripts/certificate/server.key --experimental-https-cert ./scripts/certificate/server.crt -H $NEXT_PUBLIC_ADMIN_DOMAIN",
-    "dev:ci": "cross-env NODE_OPTIONS='--inspect' next dev --experimental-https --experimental-https-key ./scripts/certificate/server.key --experimental-https-cert ./scripts/certificate/server.crt -H $DEV_HOST -p ${PORT:-8080}",
-    "build:prod": "cross-env NODE_ENV=production pnpm run build --webpack && pnpm run postbuild:monaco",
+    "dev": "pnpm run openapi:bundle && node ./scripts/launchDev.js",
+    "dev:local": "pnpm run openapi:bundle && cross-env NODE_OPTIONS='--inspect' next dev",
+    "dev:next": "pnpm run openapi:bundle && cross-env NODE_OPTIONS='--inspect' next dev --experimental-https --experimental-https-key ./scripts/certificate/server.key --experimental-https-cert ./scripts/certificate/server.crt -H $NEXT_PUBLIC_ADMIN_DOMAIN",
+    "dev:ci": "pnpm run openapi:bundle && cross-env NODE_OPTIONS='--inspect' next dev --experimental-https --experimental-https-key ./scripts/certificate/server.key --experimental-https-cert ./scripts/certificate/server.crt -H $DEV_HOST -p ${PORT:-8080}",
+    "build:prod": "pnpm run openapi:bundle && cross-env NODE_ENV=production pnpm run build --webpack && pnpm run postbuild:monaco",
     "postbuild:monaco": "node ./scripts/copyMonacoAssets.mjs",
     "serve:prod": "pnpm build:prod && PORT=8080 pnpm start",
     "gen:ssl": "./scripts/generate_ssl.sh",
@@ -29,7 +29,10 @@
     "typecheck": "tsc -p tsconfig.typecheck.json",
     "prettier": "prettier . --write --ignore-unknown",
     "test:unit": "vitest --no-watch",
-    "test:unit:watch": "vitest"
+    "test:unit:watch": "vitest",
+    "openapi:lint": "redocly lint aione@v2",
+    "openapi:bundle": "redocly bundle aione@v2 --output public/openapi/aione.yaml",
+    "openapi:verify": "pnpm run openapi:bundle && node ./scripts/verifyOpenApiContract.mjs"
   },
   "browserslist": "defaults, not ie <= 11",
   "dependencies": {
@@ -44,6 +47,7 @@
     "@llm-ui/code": "^0.13.3",
     "@monaco-editor/react": "4.8.0-rc.3",
     "@next/third-parties": "^16.0.10",
+    "@scalar/api-reference-react": "0.9.59",
     "@sindresorhus/string-hash": "^2.0.0",
     "@tailwindcss/postcss": "^4.0.17",
     "@tailwindcss/typography": "^0.5.10",
@@ -97,6 +101,7 @@
   "devDependencies": {
     "@emotion/is-prop-valid": "^1.4.0",
     "@inquirer/prompts": "^7.4.0",
+    "@redocly/cli": "2.41.2",
     "@storybook/addon-designs": "^11.1.0",
     "@storybook/addon-docs": "^10.1.10",
     "@storybook/addon-links": "^10.1.10",
@@ -127,6 +132,7 @@
     "serve": "^14.2.4",
     "storybook": "^10.1.10",
     "vitest": "^3.2.4",
+    "yaml": "2.9.0",
     "yargs": "^17.7.2"
   },
   "packageManager": "pnpm@10.20.0",

@@ -1,0 +1,26 @@
+get:
+  operationId: getCloudStoragePvcSize
+  tags: [Storage]
+  summary: Get cloud-storage PVC capacity and usage
+  security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+  parameters:
+    - $ref: ../aione.yaml#/components/parameters/id
+  responses:
+    '200':
+      description: PVC capacity statistics.
+      content:
+        application/json:
+          schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
+          example:
+            status: 200
+            data:
+              used: 123
+              provisioned: 456
+              available: 333
+              usagePercent: 26.97
+              statsSource: hawk_history
+              statsTime: '2026-08-12T01:00:00.000Z'
+    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
+    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

@@ -1,0 +1,51 @@
+post:
+  operationId: startAioneResource
+  tags: [Runs]
+  summary: Create or start an instance, training task, or model application
+  description: This operation creates compute resources. Instances support SSH workspaces.
+  security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+  parameters:
+    - $ref: ../aione.yaml#/components/parameters/runType
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          oneOf:
+            - $ref: ../aione.yaml#/components/schemas/InstanceRunRequest
+            - $ref: ../aione.yaml#/components/schemas/TaskRunRequest
+            - $ref: ../aione.yaml#/components/schemas/ModelRunRequest
+        examples:
+          instance:
+            summary: SSH-enabled development instance
+            value:
+              project: aione
+              domain: development
+              id: notebook-01
+              name: Notebook 01
+              imageType: OWN
+              image: docker.fzyun.io/founder/aione.ide:1.0.0.60
+              enableSsh: true
+              authorizedKey: ssh-ed25519 AAAA... user@example
+              resourceDefinition: { cpu: '2', memory: 4Gi, gpu: 0 }
+          task:
+            summary: Training task
+            value:
+              project: aione
+              domain: development
+              id: train-01
+              name: Training task 01
+              image: python:3.12-slim
+              command: [python, train.py]
+              resourceDefinition: { cpu: '2', memory: 4Gi, gpu: 1 }
+  responses:
+    '200':
+      description: The resource was created or started.
+      content:
+        application/json:
+          schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
+          example: { status: 200, data: { runId: aione/aione/development/notebook-01-r1 } }
+    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '409': { $ref: ../aione.yaml#/components/responses/Conflict }
+    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

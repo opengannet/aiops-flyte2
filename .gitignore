@@ -55,6 +55,7 @@ node_modules
 /flyte_console/node_modules/
 /flyte_console/.next/
 /flyte_console/public/monaco/
+/flyte_console/public/openapi/
 /flyte_console/playwright-*.png
 /flyte_console/*.tar
 /flyte_console/*.log

@@ -1,0 +1,95 @@
+name: OpenAPI Contract
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'flyte_console/openapi/**'
+      - 'flyte_console/src/app/api/aione/**'
+      - 'flyte_console/src/app/api-docs/**'
+      - 'flyte_console/src/components/AioneApiDocs/**'
+      - 'flyte_console/scripts/verifyOpenApiContract.mjs'
+      - 'flyte_console/redocly.yaml'
+      - 'flyte_console/package.json'
+      - 'flyte_console/pnpm-lock.yaml'
+      - '.github/workflows/openapi-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'flyte_console/openapi/**'
+      - 'flyte_console/src/app/api/aione/**'
+      - 'flyte_console/src/app/api-docs/**'
+      - 'flyte_console/src/components/AioneApiDocs/**'
+      - 'flyte_console/scripts/verifyOpenApiContract.mjs'
+      - 'flyte_console/redocly.yaml'
+      - 'flyte_console/package.json'
+      - 'flyte_console/pnpm-lock.yaml'
+      - '.github/workflows/openapi-contract.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: flyte_console
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 23
+          cache: pnpm
+          cache-dependency-path: flyte_console/pnpm-lock.yaml
+      - name: Enable the pinned pnpm version
+        run: corepack enable && corepack prepare pnpm@10.20.0 --activate
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint and bundle the OpenAPI contract
+        run: pnpm run openapi:lint && pnpm run openapi:bundle
+      - name: Run AIONE route and Scalar documentation tests
+        run: pnpm exec vitest run src/app/api/aione src/components/AioneApiDocs/ScalarApiReference.test.tsx
+      - name: Verify route coverage
+        run: node ./scripts/verifyOpenApiContract.mjs
+      - name: Build the Console production image input
+        run: pnpm run build:prod
+
+  breaking-change-check:
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 23
+          cache: pnpm
+          cache-dependency-path: flyte_console/pnpm-lock.yaml
+      - name: Enable the pinned pnpm version
+        run: corepack enable && corepack prepare pnpm@10.20.0 --activate
+      - name: Install dependencies
+        working-directory: flyte_console
+        run: pnpm install --frozen-lockfile
+      - name: Bundle the base contract when a YAML baseline exists
+        id: baseline
+        shell: bash
+        run: |
+          if ! git cat-file -e "origin/${{ github.base_ref }}:flyte_console/openapi/aione.yaml" 2>/dev/null; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "OpenAPI YAML baseline is being initialized."
+            exit 0
+          fi
+          git worktree add --detach "$RUNNER_TEMP/openapi-base" "origin/${{ github.base_ref }}"
+          pnpm --dir flyte_console exec redocly bundle \
+            "$RUNNER_TEMP/openapi-base/flyte_console/openapi/aione.yaml" \
+            --output "$RUNNER_TEMP/aione-base.yaml"
+          pnpm --dir flyte_console exec redocly bundle \
+            "$GITHUB_WORKSPACE/flyte_console/openapi/aione.yaml" \
+            --output "$RUNNER_TEMP/aione-revision.yaml"
+          echo "available=true" >> "$GITHUB_OUTPUT"
+      - name: Reject incompatible OpenAPI changes
+        if: steps.baseline.outputs.available == 'true'
+        uses: oasdiff/oasdiff-action/breaking@v0.1.10
+        with:
+          base: ${{ runner.temp }}/aione-base.yaml
+          revision: ${{ runner.temp }}/aione-revision.yaml

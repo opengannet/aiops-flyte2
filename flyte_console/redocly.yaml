@@ -1,0 +1,15 @@
+extends:
+  - recommended
+
+apis:
+  aione@v2:
+    root: openapi/aione.yaml
+
+rules:
+  operation-operationId: error
+  operation-summary: error
+  operation-tag-defined: error
+  operation-2xx-response: error
+  security-defined: error
+  no-unresolved-refs: error
+  no-ambiguous-paths: off

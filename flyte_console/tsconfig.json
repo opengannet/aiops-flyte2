@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["dom", "dom.iterable", "es2022"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2022"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": false,
@@ -11,7 +15,7 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
     "plugins": [
       {
@@ -19,9 +23,15 @@
       }
     ],
     "paths": {
-      "@/gen/*": ["./gen/*"],
-      "@/types/*": ["./types/*"],
-      "@/*": ["./src/*"]
+      "@/gen/*": [
+        "./gen/*"
+      ],
+      "@/types/*": [
+        "./types/*"
+      ],
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
   "include": [
@@ -30,7 +40,10 @@
     "src/**/*.ts",
     "src/**/*.tsx",
     "gen/**/*.ts",
-    "types/**/*.ts"
+    "types/**/*.ts",
+    ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

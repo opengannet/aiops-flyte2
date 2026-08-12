@@ -1,0 +1,97 @@
+openapi: 3.1.0
+info:
+  title: AIONE External REST API
+  version: v2
+  license:
+    name: SEE LICENSE IN UNION-LICENSE.txt
+    identifier: LicenseRef-Union
+  description: |
+    REST API for creating and managing AIONE development instances, training tasks,
+    model applications, observability data, and cloud storage. Unless an operation
+    explicitly states otherwise, provide either a Bearer token or X-API-Key.
+servers:
+  - url: /v2
+    description: Current Flyte Console service
+tags:
+  - name: Runs
+    description: Create development instances, training tasks, and model applications.
+  - name: Execution management
+    description: Inspect, stop, and clear runtime resources.
+  - name: Observability
+    description: Read logs, monitoring data, and GPU allocation.
+  - name: Storage
+    description: Inspect cloud-storage PVC capacity.
+  - name: Models
+    description: Obtain model API keys.
+paths:
+  /api/aione/{type}/run:
+    $ref: ./paths/run.yaml
+  /api/aione/model/{id}/run:
+    $ref: ./paths/model-run.yaml
+  /api/aione/{type}/{id}/status:
+    $ref: ./paths/status.yaml
+  /api/aione/{type}/{id}/stop:
+    $ref: ./paths/stop.yaml
+  /api/aione/{type}/{id}/clear:
+    $ref: ./paths/clear.yaml
+  /api/aione/{type}/{id}/runs:
+    $ref: ./paths/runs.yaml
+  /api/aione/{type}/{id}/log:
+    $ref: ./paths/log.yaml
+  /api/aione/{type}/{id}/monitor:
+    $ref: ./paths/monitor.yaml
+  /api/aione/gpus:
+    $ref: ./paths/gpus.yaml
+  /api/aione/pvc/{id}/size:
+    $ref: ./paths/pvc-size.yaml
+  /api/aione/apikey/{modelCode}:
+    $ref: ./paths/apikey.yaml
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: ./components/security-schemes.yaml#/bearerAuth
+    apiKeyAuth:
+      $ref: ./components/security-schemes.yaml#/apiKeyAuth
+  parameters:
+    id:
+      $ref: ./components/parameters.yaml#/id
+    executionType:
+      $ref: ./components/parameters.yaml#/executionType
+    runType:
+      $ref: ./components/parameters.yaml#/runType
+    clearType:
+      $ref: ./components/parameters.yaml#/clearType
+    page:
+      $ref: ./components/parameters.yaml#/page
+    pageSize:
+      $ref: ./components/parameters.yaml#/pageSize
+    monitorMode:
+      $ref: ./components/parameters.yaml#/monitorMode
+    monitorPeriod:
+      $ref: ./components/parameters.yaml#/monitorPeriod
+    gpuKeys:
+      $ref: ./components/parameters.yaml#/gpuKeys
+    modelCode:
+      $ref: ./components/parameters.yaml#/modelCode
+  responses:
+    BadRequest:
+      $ref: ./components/responses.yaml#/BadRequest
+    Unauthorized:
+      $ref: ./components/responses.yaml#/Unauthorized
+    NotFound:
+      $ref: ./components/responses.yaml#/NotFound
+    Conflict:
+      $ref: ./components/responses.yaml#/Conflict
+    UpstreamFailure:
+      $ref: ./components/responses.yaml#/UpstreamFailure
+  schemas:
+    SuccessEnvelope:
+      $ref: ./components/schemas.yaml#/SuccessEnvelope
+    ErrorEnvelope:
+      $ref: ./components/schemas.yaml#/ErrorEnvelope
+    InstanceRunRequest:
+      $ref: ./components/schemas.yaml#/InstanceRunRequest
+    TaskRunRequest:
+      $ref: ./components/schemas.yaml#/TaskRunRequest
+    ModelRunRequest:
+      $ref: ./components/schemas.yaml#/ModelRunRequest

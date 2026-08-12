@@ -1,0 +1,23 @@
+delete:
+  operationId: clearAioneResource
+  tags: [Execution management]
+  summary: Clear terminated runtime resources or a cloud-storage PVC
+  description: |
+    Use instance or task only after the latest run terminates. Store removes the PVC
+    selected by its cloud-storage ID. This operation is irreversible.
+  security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+  parameters:
+    - $ref: ../aione.yaml#/components/parameters/clearType
+    - $ref: ../aione.yaml#/components/parameters/id
+  responses:
+    '200':
+      description: Resources were cleared.
+      content:
+        application/json:
+          schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
+          example: { status: 200, data: {} }
+    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
+    '409': { $ref: ../aione.yaml#/components/responses/Conflict }
+    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

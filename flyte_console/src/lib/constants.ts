@@ -25,6 +25,10 @@ export const FLYTE_DOCS_FLYTE_CLI_DEPLOY_URL =
 /** Licensed edition / upgrade CTA. */
 export const FLYTE_LICENSED_EDITION_INFO_URL = 'https://www.union.ai/pricing'
 
+/** Public AIONE REST API reference. */
+export const AIONE_API_DOCS_URL =
+  'https://flyte2.ops.fzyun.io/v2/api-docs'
+
 /** Support contact (e.g. 404 page). */
 export const SUPPORT_CONTACT_MAILTO_URL = 'mailto:support@union.ai'
 

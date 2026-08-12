@@ -1,0 +1,21 @@
+get:
+  operationId: getGpuAllocation
+  tags: [Observability]
+  summary: Get total and allocated GPU resources
+  security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+  parameters:
+    - $ref: ../aione.yaml#/components/parameters/gpuKeys
+  responses:
+    '200':
+      description: GPU allocation by resource key.
+      content:
+        application/json:
+          schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
+          example:
+            status: 200
+            data:
+              nvidia.com/gpu: { total: 4, allocated: 1 }
+              nvidia.com/3090: { total: 2, allocated: 0 }
+    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

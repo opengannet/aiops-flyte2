@@ -1,0 +1,35 @@
+BadRequest:
+  description: Invalid request.
+  content:
+    application/json:
+      schema:
+        $ref: ./schemas.yaml#/ErrorEnvelope
+      example: { status: 400, message: id is required }
+Unauthorized:
+  description: Authentication failed.
+  content:
+    application/json:
+      schema:
+        $ref: ./schemas.yaml#/ErrorEnvelope
+      example: { status: 401, message: unauthorized }
+NotFound:
+  description: The requested resource does not exist.
+  content:
+    application/json:
+      schema:
+        $ref: ./schemas.yaml#/ErrorEnvelope
+      example: { status: 404, message: not found }
+Conflict:
+  description: The requested operation conflicts with current resource state.
+  content:
+    application/json:
+      schema:
+        $ref: ./schemas.yaml#/ErrorEnvelope
+      example: { status: 409, message: resource is still running }
+UpstreamFailure:
+  description: Flyte, Kubernetes, or another upstream dependency failed.
+  content:
+    application/json:
+      schema:
+        $ref: ./schemas.yaml#/ErrorEnvelope
+      example: { status: 502, message: upstream request failed }

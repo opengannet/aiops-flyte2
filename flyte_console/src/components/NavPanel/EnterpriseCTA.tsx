@@ -2,7 +2,7 @@
  * © Copyright Union Systems Inc 2026. All rights reserved.
  */
 
-import { FLYTE_LICENSED_EDITION_INFO_URL } from '@/lib/constants'
+import { AIONE_API_DOCS_URL } from '@/lib/constants'
 import { getUiText } from '@/lib/uiText'
 import { AnimatePresence, motion } from 'motion/react'
 import Link from 'next/link'
@@ -63,14 +63,14 @@ export const EnterpriseCTA = ({ size }: EnterpriseCTAProps) => {
         className={isThin ? 'mt-3 mb-2 px-0' : 'mt-3 mb-2 px-0.5'}
       >
         <Link
-          href={FLYTE_LICENSED_EDITION_INFO_URL}
+          href={AIONE_API_DOCS_URL}
           target="_blank"
           rel="noopener noreferrer"
           className="group block"
         >
           {isThin ? (
             // Thin mode: just the icon with tooltip
-            <Tooltip content={getUiText('upgradeToEnterprise')} placement="right">
+            <Tooltip content={getUiText('accessApiDocs')} placement="right">
               <RoundedArrowButton className="mx-auto transition-all duration-200 group-hover:bg-(--union) hover:bg-(--union) hover:shadow-lg" />
             </Tooltip>
           ) : (
@@ -80,10 +80,10 @@ export const EnterpriseCTA = ({ size }: EnterpriseCTAProps) => {
               <div className="relative flex items-center justify-between">
                 <div className="flex flex-1 flex-col">
                   <div className="text-sm leading-[150%] font-semibold text-(--union)">
-                    {getUiText('upgradeToEnterprise')}
+                    {getUiText('accessApiDocs')}
                   </div>
                   <div className="mt-0.5 text-xs leading-[150%] font-medium text-(--system-gray-5)">
-                    {getUiText('unlockMoreBenefits')}
+                    {getUiText('browseApiReference')}
                   </div>
                 </div>
 

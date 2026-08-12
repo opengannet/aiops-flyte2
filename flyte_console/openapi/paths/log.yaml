@@ -1,0 +1,29 @@
+get:
+  operationId: getAioneResourceLogs
+  tags: [Observability]
+  summary: Get instance or training-task logs
+  security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+  parameters:
+    - $ref: ../aione.yaml#/components/parameters/executionType
+    - $ref: ../aione.yaml#/components/parameters/id
+    - $ref: ../aione.yaml#/components/parameters/page
+    - $ref: ../aione.yaml#/components/parameters/pageSize
+  responses:
+    '200':
+      description: Paginated log entries.
+      content:
+        application/json:
+          schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
+          example:
+            status: 200
+            data:
+              page: 1
+              size: 200
+              total: 1
+              lines:
+                - time: '2026-08-12T01:00:00.000Z'
+                  message: training started
+    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
+    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

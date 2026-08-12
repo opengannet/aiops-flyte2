@@ -1,4 +1,4 @@
-import { SwaggerUi } from "@/components/AioneApiDocs/SwaggerUi";
+import { ScalarApiReference } from "@/components/AioneApiDocs/ScalarApiReference";
 
 export const metadata = {
   title: "AIONE REST API 文档 | Flyte 2",
@@ -8,7 +8,6 @@ export const metadata = {
 export default function ApiDocsPage() {
   return (
     <main>
-      <link rel="stylesheet" href="/v2/swagger-ui/swagger-ui.css" />
       <link rel="icon" href="/v2/union-192x192.png" />
       <section
         style={{
@@ -19,9 +18,12 @@ export default function ApiDocsPage() {
         }}
       >
         <strong>注意：在线调试可能创建、停止或清理计算资源。</strong>
-        <span> 在右上角 Authorize 中输入 API key；密钥只保留在浏览器 Swagger UI 会话中，不会写入服务端日志或本接口规范。</span>
+        <span>
+          {" "}
+          请在 Scalar 的 Authentication 面板中输入 API key；密钥只保留在浏览器中，不会写入服务端日志或 OpenAPI 合约。
+        </span>
       </section>
-      <SwaggerUi />
+      <ScalarApiReference />
     </main>
   );
 }

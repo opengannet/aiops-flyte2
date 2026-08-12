@@ -198,14 +198,14 @@ Pod `nvidia.com/gpu` request。
 
 `allocated` 表示 Kubernetes 已分配/请求的 GPU 数量，不表示 DCGM 或 GPU metrics 中的实时利用率。
 
-## OpenAPI 与 Swagger UI
+## OpenAPI 与 Scalar API Reference
 
-外部 AIONE REST API 提供 OpenAPI 3.1 规范和 Swagger UI 在线文档：
+外部 AIONE REST API 提供 OpenAPI 3.1 YAML 规范和 Scalar 在线文档：
 
-- OpenAPI JSON：`http://172.19.66.218:30081/v2/openapi.json`
-- Swagger UI：`http://172.19.66.218:30081/v2/api-docs`
+- OpenAPI YAML：`http://172.19.66.218:30081/v2/openapi/aione.yaml`
+- Scalar API Reference：`http://172.19.66.218:30081/v2/api-docs`
 
-Swagger UI 页面和 OpenAPI JSON 可公开访问；绝大多数外部接口仍需要 API key。可在 Swagger UI 的 **Authorize** 中填写 `Bearer Token` 或 `X-API-Key`，也可在脚本中使用：
+Scalar 页面和 OpenAPI YAML 可公开访问；绝大多数外部接口仍需要 API key。可在 Scalar 的 **Authentication** 面板中填写 `Bearer Token` 或 `X-API-Key`，也可在脚本中使用：
 
 ```bash
 curl -fsS \
@@ -213,4 +213,4 @@ curl -fsS \
   "http://172.19.66.218:30081/v2/api/aione/gpus?keys=nvidia.com/gpu"
 ```
 
-在线调试中的创建、停止和清理操作会影响真实计算资源。页面输入的 key 只保存在浏览器的 Swagger UI 会话中，不会写进服务端日志或规范文件。
+在线调试中的创建、停止和清理操作会影响真实计算资源。页面输入的 key 只保存在浏览器中，不会写进服务端日志或规范文件。`/v2/openapi.json` 已移除，不提供兼容重定向。

@@ -1,0 +1,19 @@
+get:
+  operationId: getAioneResourceStatus
+  tags: [Execution management]
+  summary: Get an instance or training-task status
+  security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
+  parameters:
+    - $ref: ../aione.yaml#/components/parameters/executionType
+    - $ref: ../aione.yaml#/components/parameters/id
+  responses:
+    '200':
+      description: Current execution status.
+      content:
+        application/json:
+          schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
+          example: { status: 200, data: { runId: aione/aione/development/train-01, phase: 4, error: '', durationSeconds: 120 } }
+    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
+    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

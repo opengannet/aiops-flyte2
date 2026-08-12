@@ -1,0 +1,10 @@
+bearerAuth:
+  type: http
+  scheme: bearer
+  bearerFormat: API key
+  description: Send `Bearer <key>` in the Authorization header.
+apiKeyAuth:
+  type: apiKey
+  in: header
+  name: X-API-Key
+  description: Alternative to the Authorization header.

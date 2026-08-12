@@ -1,0 +1,82 @@
+id:
+  name: id
+  in: path
+  required: true
+  description: External instance, task, model, or cloud-storage identifier.
+  schema:
+    type: string
+    minLength: 1
+executionType:
+  name: type
+  in: path
+  required: true
+  description: Instance or training-task type.
+  schema:
+    type: string
+    enum: [instance, task]
+runType:
+  name: type
+  in: path
+  required: true
+  description: Resource type to start.
+  schema:
+    type: string
+    enum: [instance, task, model]
+clearType:
+  name: type
+  in: path
+  required: true
+  description: Resource type to clear.
+  schema:
+    type: string
+    enum: [instance, task, store]
+page:
+  name: page
+  in: query
+  description: One-based page number. Defaults to 1.
+  schema:
+    type: integer
+    minimum: 1
+    default: 1
+pageSize:
+  name: size
+  in: query
+  description: Records per page. Defaults to 200 and is capped at 1000.
+  schema:
+    type: integer
+    minimum: 1
+    maximum: 1000
+    default: 200
+monitorMode:
+  name: mode
+  in: query
+  required: true
+  description: Comma-separated combination of cpu, memory, and gpu.
+  schema:
+    type: string
+    example: cpu,memory,gpu
+monitorPeriod:
+  name: period
+  in: query
+  required: true
+  description: Duration in minutes or hours, up to 24 hours.
+  schema:
+    type: string
+    pattern: ^[1-9]\d*(m|h)$
+    example: 1h
+gpuKeys:
+  name: keys
+  in: query
+  required: true
+  description: Comma-separated Kubernetes GPU resource keys or GPU model label keys.
+  schema:
+    type: string
+    example: nvidia.com/gpu,nvidia.com/3090
+modelCode:
+  name: modelCode
+  in: path
+  required: true
+  description: Model code. It may contain forward slashes.
+  schema:
+    type: string
+    minLength: 1
