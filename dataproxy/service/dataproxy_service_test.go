@@ -446,6 +446,36 @@ func TestUploadInputs(t *testing.T) {
 			},
 		},
 		{
+			name: "run_base_dir (base_dir) is a full path used verbatim, switching buckets",
+			req: &dataproxy.UploadInputsRequest{
+				Id: &dataproxy.UploadInputsRequest_RunId{
+					RunId: &common.RunIdentifier{
+						Org:     "test-org",
+						Project: "test-project",
+						Domain:  "test-domain",
+						Name:    "test-run",
+					},
+				},
+				Task:    &dataproxy.UploadInputsRequest_TaskSpec{TaskSpec: testTaskSpec},
+				BaseDir: "s3://my-own-bucket/team-a/",
+				Inputs: &task.Inputs{
+					Literals: []*task.NamedLiteral{
+						{Name: "x", Value: &core.Literal{Value: &core.Literal_Scalar{Scalar: &core.Scalar{Value: &core.Scalar_Primitive{Primitive: &core.Primitive{Value: &core.Primitive_Integer{Integer: 42}}}}}}},
+					},
+				},
+			},
+			wantErr: false,
+			validateResult: func(t *testing.T, resp *connect.Response[dataproxy.UploadInputsResponse]) {
+				assert.NotNil(t, resp.Msg.OffloadedInputData)
+				// base_dir is used verbatim, bucket and all: the inputs land in the
+				// override bucket, not the configured base container (s3://test-bucket)
+				// nor under the "uploads" storage prefix. Trailing slash is trimmed.
+				assert.Contains(t, resp.Msg.OffloadedInputData.Uri, "s3://my-own-bucket/team-a/test-org/test-project/test-domain/offloaded-inputs/")
+				assert.NotContains(t, resp.Msg.OffloadedInputData.Uri, "s3://test-bucket")
+				assert.NotContains(t, resp.Msg.OffloadedInputData.Uri, "uploads/test-org")
+			},
+		},
+		{
 			name: "cache_ignore_input_vars excludes inputs from hash",
 			req: &dataproxy.UploadInputsRequest{
 				Id: &dataproxy.UploadInputsRequest_RunId{
@@ -529,9 +559,12 @@ func TestGetActionData(t *testing.T) {
 			{Name: "x", Value: &core.Literal{Value: &core.Literal_Scalar{Scalar: &core.Scalar{Value: &core.Scalar_Primitive{Primitive: &core.Primitive{Value: &core.Primitive_Integer{Integer: 1}}}}}}},
 		},
 	}
-	storedOutputs := &task.Inputs{
+	storedOutputs := &task.Outputs{
 		Literals: []*task.NamedLiteral{
 			{Name: "o", Value: &core.Literal{Value: &core.Literal_Scalar{Scalar: &core.Scalar{Value: &core.Scalar_Primitive{Primitive: &core.Primitive{Value: &core.Primitive_StringValue{StringValue: "result"}}}}}}},
+		},
+		ProducedArtifacts: []*task.ProducedArtifact{
+			{Output: "o", Name: "my-model", Version: "v1"},
 		},
 	}
 
@@ -664,6 +697,9 @@ func TestGetActionData(t *testing.T) {
 			if tt.expectOutputsLen > 0 {
 				assert.Equal(t, "o", resp.Msg.GetOutputs().GetLiterals()[0].GetName())
 				assert.Equal(t, tt.outputsURI, resp.Msg.GetOutputsUri())
+				// The produced-artifact declarations survive the outputs read.
+				require.Len(t, resp.Msg.GetOutputs().GetProducedArtifacts(), 1)
+				assert.Equal(t, "my-model", resp.Msg.GetOutputs().GetProducedArtifacts()[0].GetName())
 			} else {
 				assert.Empty(t, resp.Msg.GetOutputsUri())
 			}

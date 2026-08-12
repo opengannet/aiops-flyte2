@@ -26,6 +26,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/flyteorg/flyte/v2/app/internal/config"
+	"github.com/flyteorg/flyte/v2/flyteplugins/go/tasks/pluginmachinery/secret"
+	secretutils "github.com/flyteorg/flyte/v2/flyteplugins/go/tasks/pluginmachinery/utils/secrets"
 	"github.com/flyteorg/flyte/v2/flytestdlib/k8s"
 	"github.com/flyteorg/flyte/v2/flytestdlib/logger"
 	"github.com/flyteorg/flyte/v2/flytestdlib/utils"
@@ -87,6 +89,7 @@ type AppK8sClient struct {
 	k8sClient client.WithWatch
 	cache     ctrlcache.Cache
 	cfg       *config.InternalAppConfig
+	namespace string
 
 	mu          sync.RWMutex
 	subscribers map[string]map[chan *flyteapp.WatchResponse]struct{}
@@ -94,11 +97,14 @@ type AppK8sClient struct {
 	watching    bool
 }
 
-func NewAppK8sClient(k8sClient client.WithWatch, cache ctrlcache.Cache, cfg *config.InternalAppConfig) *AppK8sClient {
-	return &AppK8sClient{k8sClient: k8sClient, cache: cache, cfg: cfg, subscribers: make(map[string]map[chan *flyteapp.WatchResponse]struct{})}
+func NewAppK8sClient(k8sClient client.WithWatch, cache ctrlcache.Cache, namespace string, cfg *config.InternalAppConfig) *AppK8sClient {
+	if namespace == "" {
+		namespace = AppNamespace
+	}
+	return &AppK8sClient{k8sClient: k8sClient, cache: cache, cfg: cfg, namespace: namespace, subscribers: make(map[string]map[chan *flyteapp.WatchResponse]struct{})}
 }
 
-// AppNamespace is the fixed Kubernetes namespace where Apps are deployed.
+// AppNamespace is retained as the default for callers that do not configure a namespace.
 const AppNamespace = "flyte"
 
 func (c *AppK8sClient) Deploy(ctx context.Context, app *flyteapp.App) error {
@@ -115,8 +121,8 @@ func (c *AppK8sClient) RedeployWithResources(ctx context.Context, app *flyteapp.
 
 func (c *AppK8sClient) deployWithResources(ctx context.Context, app *flyteapp.App, resources AppAuxResources, forceRestart bool) error {
 	appID := app.GetMetadata().GetId()
-	if err := k8s.EnsureNamespaceExists(ctx, c.k8sClient, AppNamespace); err != nil {
-		return fmt.Errorf("failed to ensure namespace %s: %w", AppNamespace, err)
+	if err := k8s.EnsureNamespaceExists(ctx, c.k8sClient, c.namespace); err != nil {
+		return fmt.Errorf("failed to ensure namespace %s: %w", c.namespace, err)
 	}
 	if err := c.ensureAuxResources(ctx, appID, resources); err != nil {
 		return fmt.Errorf("failed to ensure auxiliary resources: %w", err)
@@ -140,14 +146,14 @@ func (c *AppK8sClient) deployWithResources(ctx context.Context, app *flyteapp.Ap
 	if err := c.upsertIngress(ctx, native.Ingress); err != nil {
 		return err
 	}
-	logger.Infof(ctx, "Applied native app resources for %s/%s", AppNamespace, native.Deployment.Name)
+	logger.Infof(ctx, "Applied native app resources for %s/%s", c.namespace, native.Deployment.Name)
 	return nil
 }
 
 func (c *AppK8sClient) Stop(ctx context.Context, appID *flyteapp.Identifier) error {
 	name := AppResourceName(appID)
 	deployment := &appsv1.Deployment{}
-	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, deployment); err != nil {
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: c.namespace, Name: name}, deployment); err != nil {
 		if k8serrors.IsNotFound(err) {
 			return nil
 		}
@@ -162,20 +168,20 @@ func (c *AppK8sClient) Stop(ctx context.Context, appID *flyteapp.Identifier) err
 	if err := c.k8sClient.Update(ctx, deployment); err != nil {
 		return fmt.Errorf("failed to scale Deployment %s to zero: %w", name, err)
 	}
-	ingress := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: AppNamespace}}
+	ingress := &networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: c.namespace}}
 	if err := c.k8sClient.Delete(ctx, ingress); err != nil && !k8serrors.IsNotFound(err) {
 		return fmt.Errorf("failed to remove Ingress for stopped app %s: %w", name, err)
 	}
-	logger.Infof(ctx, "Stopped native app %s/%s", AppNamespace, name)
+	logger.Infof(ctx, "Stopped native app %s/%s", c.namespace, name)
 	return nil
 }
 
 func (c *AppK8sClient) Delete(ctx context.Context, appID *flyteapp.Identifier) error {
 	name := AppResourceName(appID)
 	objects := []client.Object{
-		&networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: AppNamespace}},
-		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: AppNamespace}},
-		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: AppNamespace}},
+		&networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: c.namespace}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: c.namespace}},
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: c.namespace}},
 	}
 	for _, obj := range objects {
 		if err := c.k8sClient.Delete(ctx, obj); err != nil && !k8serrors.IsNotFound(err) {
@@ -185,7 +191,7 @@ func (c *AppK8sClient) Delete(ctx context.Context, appID *flyteapp.Identifier) e
 	if err := c.deleteAuxResources(ctx, appID); err != nil {
 		return fmt.Errorf("failed to delete auxiliary resources for app %s: %w", name, err)
 	}
-	logger.Infof(ctx, "Deleted native app %s/%s", AppNamespace, name)
+	logger.Infof(ctx, "Deleted native app %s/%s", c.namespace, name)
 	return nil
 }
 
@@ -221,10 +227,11 @@ func (c *AppK8sClient) buildNativeResources(app *flyteapp.App) (*nativeAppResour
 	}
 	if len(podSpec.Containers) > 0 {
 		suffix := renderNamespacedSuffix(c.cfg.NamespacedNameSuffixTemplate, appID.GetProject(), appID.GetDomain())
-		podSpec.Containers[0].Env = append(podSpec.Containers[0].Env, corev1.EnvVar{
-			Name:  "INTERNAL_APP_ENDPOINT_PATTERN",
-			Value: fmt.Sprintf("http://{app_fqdn}-%s.%s.svc.cluster.local", suffix, AppNamespace),
-		})
+		podSpec.Containers[0].Env = append(podSpec.Containers[0].Env,
+			corev1.EnvVar{Name: "INTERNAL_APP_ENDPOINT_PATTERN", Value: fmt.Sprintf("http://{app_fqdn}-%s.%s.svc.cluster.local", suffix, c.namespace)},
+			corev1.EnvVar{Name: "FLYTE_INTERNAL_EXECUTION_PROJECT", Value: appID.GetProject()},
+			corev1.EnvVar{Name: "FLYTE_INTERNAL_EXECUTION_DOMAIN", Value: appID.GetDomain()},
+		)
 	}
 	replicas, err := desiredReplicas(spec)
 	if err != nil {
@@ -241,6 +248,21 @@ func (c *AppK8sClient) buildNativeResources(app *flyteapp.App) (*nativeAppResour
 		labels[labelAppStopped] = "true"
 	}
 	selector := appSelectorLabels(appID)
+	podLabels := appSelectorLabels(appID)
+	podAnnotations := map[string]string{}
+	if securityContext := spec.GetSecurityContext(); securityContext != nil && len(securityContext.GetSecrets()) > 0 {
+		podLabels[secret.OrganizationLabel] = secret.DefaultOrganization
+		podLabels[secret.ProjectLabel] = appID.GetProject()
+		podLabels[secret.DomainLabel] = appID.GetDomain()
+		podLabels[secretutils.PodLabel] = secretutils.PodLabelValue
+		secretsMap, err := secretutils.MarshalSecretsToMapStrings(securityContext.GetSecrets())
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal secrets: %w", err)
+		}
+		for key, value := range secretsMap {
+			podAnnotations[key] = value
+		}
+	}
 	port := primaryContainerPort(spec, podSpec)
 	pathType := networkingv1.PathTypePrefix
 	className := c.cfg.IngressClassName
@@ -248,16 +270,16 @@ func (c *AppK8sClient) buildNativeResources(app *flyteapp.App) (*nativeAppResour
 		className = "traefik"
 	}
 	deployment := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: AppNamespace, Labels: labels, Annotations: annotations},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: c.namespace, Labels: labels, Annotations: annotations},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: selector},
 			Strategy: appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType},
-			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: selector}, Spec: podSpec},
+			Template: corev1.PodTemplateSpec{ObjectMeta: metav1.ObjectMeta{Labels: podLabels, Annotations: podAnnotations}, Spec: podSpec},
 		},
 	}
 	service := &corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: AppNamespace, Labels: labels},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: c.namespace, Labels: labels},
 		Spec: corev1.ServiceSpec{
 			Type:     corev1.ServiceTypeClusterIP,
 			Selector: selector,
@@ -265,7 +287,7 @@ func (c *AppK8sClient) buildNativeResources(app *flyteapp.App) (*nativeAppResour
 		},
 	}
 	ingress := &networkingv1.Ingress{
-		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: AppNamespace, Labels: labels},
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: c.namespace, Labels: labels},
 		Spec: networkingv1.IngressSpec{
 			IngressClassName: &className,
 			Rules: []networkingv1.IngressRule{{
@@ -416,7 +438,7 @@ func (c *AppK8sClient) ensureAuxResources(ctx context.Context, appID *flyteapp.I
 }
 
 func (c *AppK8sClient) upsertSecret(ctx context.Context, appID *flyteapp.Identifier, desired *corev1.Secret) error {
-	applyAuxLabels(appID, desired)
+	applyAuxLabels(appID, desired, c.namespace)
 	existing := &corev1.Secret{}
 	err := c.k8sClient.Get(ctx, client.ObjectKey{Name: desired.Name, Namespace: desired.Namespace}, existing)
 	if k8serrors.IsNotFound(err) {
@@ -434,7 +456,7 @@ func (c *AppK8sClient) upsertSecret(ctx context.Context, appID *flyteapp.Identif
 }
 
 func (c *AppK8sClient) upsertPVC(ctx context.Context, appID *flyteapp.Identifier, desired *corev1.PersistentVolumeClaim) error {
-	applyAuxLabels(appID, desired)
+	applyAuxLabels(appID, desired, c.namespace)
 	existing := &corev1.PersistentVolumeClaim{}
 	err := c.k8sClient.Get(ctx, client.ObjectKey{Name: desired.Name, Namespace: desired.Namespace}, existing)
 	if k8serrors.IsNotFound(err) {
@@ -468,7 +490,7 @@ func (c *AppK8sClient) upsertPVC(ctx context.Context, appID *flyteapp.Identifier
 func (c *AppK8sClient) deleteAuxResources(ctx context.Context, appID *flyteapp.Identifier) error {
 	labels := appAuxLabels(appID)
 	secrets := &corev1.SecretList{}
-	if err := c.k8sClient.List(ctx, secrets, client.InNamespace(AppNamespace), client.MatchingLabels(labels)); err != nil {
+	if err := c.k8sClient.List(ctx, secrets, client.InNamespace(c.namespace), client.MatchingLabels(labels)); err != nil {
 		return err
 	}
 	for i := range secrets.Items {
@@ -477,7 +499,7 @@ func (c *AppK8sClient) deleteAuxResources(ctx context.Context, appID *flyteapp.I
 		}
 	}
 	pvcs := &corev1.PersistentVolumeClaimList{}
-	if err := c.k8sClient.List(ctx, pvcs, client.InNamespace(AppNamespace), client.MatchingLabels(labels)); err != nil {
+	if err := c.k8sClient.List(ctx, pvcs, client.InNamespace(c.namespace), client.MatchingLabels(labels)); err != nil {
 		return err
 	}
 	for i := range pvcs.Items {
@@ -497,8 +519,8 @@ func appAuxLabels(id *flyteapp.Identifier) map[string]string {
 	return labels
 }
 
-func applyAuxLabels(id *flyteapp.Identifier, obj client.Object) {
-	obj.SetNamespace(AppNamespace)
+func applyAuxLabels(id *flyteapp.Identifier, obj client.Object, namespace string) {
+	obj.SetNamespace(namespace)
 	labels := obj.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}
@@ -628,7 +650,7 @@ func (c *AppK8sClient) handleDeploymentEvent(ctx context.Context, deployment *ap
 
 func (c *AppK8sClient) GetApp(ctx context.Context, appID *flyteapp.Identifier) (*flyteapp.App, error) {
 	deployment := &appsv1.Deployment{}
-	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: AppResourceName(appID)}, deployment); err != nil {
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: c.namespace, Name: AppResourceName(appID)}, deployment); err != nil {
 		return nil, err
 	}
 	return c.deploymentToApp(deployment)
@@ -636,7 +658,7 @@ func (c *AppK8sClient) GetApp(ctx context.Context, appID *flyteapp.Identifier) (
 
 func (c *AppK8sClient) GetRuntimePodSpec(ctx context.Context, appID *flyteapp.Identifier) (*corev1.PodSpec, error) {
 	deployment := &appsv1.Deployment{}
-	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: AppResourceName(appID)}, deployment); err != nil {
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: c.namespace, Name: AppResourceName(appID)}, deployment); err != nil {
 		return nil, err
 	}
 	return deployment.Spec.Template.Spec.DeepCopy(), nil
@@ -644,7 +666,7 @@ func (c *AppK8sClient) GetRuntimePodSpec(ctx context.Context, appID *flyteapp.Id
 
 func (c *AppK8sClient) GetAuxSecret(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.Secret, error) {
 	secret := &corev1.Secret{}
-	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, secret); err != nil {
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: c.namespace, Name: name}, secret); err != nil {
 		return nil, err
 	}
 	for key, value := range appAuxLabels(appID) {
@@ -657,7 +679,7 @@ func (c *AppK8sClient) GetAuxSecret(ctx context.Context, appID *flyteapp.Identif
 
 func (c *AppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error) {
 	deployment := &appsv1.Deployment{}
-	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: AppResourceName(appID)}, deployment); err != nil {
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: c.namespace, Name: AppResourceName(appID)}, deployment); err != nil {
 		return nil, err
 	}
 	referenced := false
@@ -673,7 +695,7 @@ func (c *AppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier
 	}
 
 	pvc := &corev1.PersistentVolumeClaim{}
-	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, pvc); err != nil {
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: c.namespace, Name: name}, pvc); err != nil {
 		return nil, err
 	}
 	if pvc.Labels[labelCloudStorage] != "true" {
@@ -684,7 +706,7 @@ func (c *AppK8sClient) GetAuxPVC(ctx context.Context, appID *flyteapp.Identifier
 
 func (c *AppK8sClient) GetAppAuxPVC(ctx context.Context, appID *flyteapp.Identifier, name string) (*corev1.PersistentVolumeClaim, error) {
 	pvc := &corev1.PersistentVolumeClaim{}
-	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: AppNamespace, Name: name}, pvc); err != nil {
+	if err := c.k8sClient.Get(ctx, client.ObjectKey{Namespace: c.namespace, Name: name}, pvc); err != nil {
 		return nil, err
 	}
 	for key, value := range appAuxLabels(appID) {
@@ -714,7 +736,7 @@ func (c *AppK8sClient) List(ctx context.Context, project, domain string, limit u
 	if domain != "" {
 		match[labelDomain] = domain
 	}
-	opts := []client.ListOption{client.InNamespace(AppNamespace), client.MatchingLabels(match)}
+	opts := []client.ListOption{client.InNamespace(c.namespace), client.MatchingLabels(match)}
 	if limit > 0 {
 		opts = append(opts, client.Limit(int64(limit)))
 	}
@@ -914,7 +936,7 @@ func deploymentStatus(deployment *appsv1.Deployment) (flyteapp.Status_Deployment
 
 func (c *AppK8sClient) GetReplicas(ctx context.Context, appID *flyteapp.Identifier) ([]*flyteapp.Replica, error) {
 	pods := &corev1.PodList{}
-	if err := c.k8sClient.List(ctx, pods, client.InNamespace(AppNamespace), client.MatchingLabels(appSelectorLabels(appID))); err != nil {
+	if err := c.k8sClient.List(ctx, pods, client.InNamespace(c.namespace), client.MatchingLabels(appSelectorLabels(appID))); err != nil {
 		return nil, err
 	}
 	result := make([]*flyteapp.Replica, 0, len(pods.Items))
@@ -925,7 +947,7 @@ func (c *AppK8sClient) GetReplicas(ctx context.Context, appID *flyteapp.Identifi
 }
 
 func (c *AppK8sClient) DeleteReplica(ctx context.Context, replicaID *flyteapp.ReplicaIdentifier) error {
-	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: replicaID.GetName(), Namespace: AppNamespace}}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: replicaID.GetName(), Namespace: c.namespace}}
 	if err := c.k8sClient.Delete(ctx, pod); err != nil && !k8serrors.IsNotFound(err) {
 		return err
 	}

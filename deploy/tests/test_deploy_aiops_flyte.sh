@@ -122,7 +122,7 @@ if ! grep -Fq "services(\\.serving\\.knative\\.dev)?" "$LEGACY_CLEANUP"; then
 fi
 
 dockerfile="$(cat "$ROOT_DIR/Dockerfile")"
-if [[ "$dockerfile" != *'FROM --platform=${BUILDPLATFORM} docker.fzyun.io/library/golang:1.26.3-bookworm AS flytebuilder'* ]]; then
+if [[ "$dockerfile" != *'FROM --platform=${BUILDPLATFORM} docker.fzyun.io/library/golang:1.26.5-bookworm AS flytebuilder'* ]]; then
   printf 'expected backend Dockerfile to use the docker.fzyun.io golang base image\n' >&2
   exit 1
 fi

@@ -589,4 +589,3 @@ export enum SimpleType {
  */
 export const SimpleTypeSchema: GenEnum<SimpleType> = /*@__PURE__*/
   enumDesc(file_flyteidl2_core_types, 0);
-

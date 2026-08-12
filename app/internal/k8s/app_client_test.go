@@ -41,7 +41,7 @@ func testScheme(t *testing.T) *runtime.Scheme {
 func testClient(t *testing.T, objects ...ctrlclient.Object) *AppK8sClient {
 	t.Helper()
 	client := fake.NewClientBuilder().WithScheme(testScheme(t)).WithStatusSubresource(&appsv1.Deployment{}).WithObjects(objects...).Build()
-	return NewAppK8sClient(client, nil, &config.InternalAppConfig{BaseDomain: "ops.fzyun.io", Scheme: "https", IngressClassName: "traefik", WatchBufferSize: 10, NamespacedNameSuffixTemplate: "{{ project }}-{{ domain }}"})
+	return NewAppK8sClient(client, nil, AppNamespace, &config.InternalAppConfig{BaseDomain: "ops.fzyun.io", Scheme: "https", IngressClassName: "traefik", WatchBufferSize: 10, NamespacedNameSuffixTemplate: "{{ project }}-{{ domain }}"})
 }
 
 func testApp(project, domain, name, image string) *flyteapp.App {
@@ -82,6 +82,44 @@ func TestDeploy_CreateNativeResources(t *testing.T) {
 	assert.Equal(t, "myapp-proj-dev.ops.fzyun.io", ingress.Spec.Rules[0].Host)
 	require.NotNil(t, ingress.Spec.IngressClassName)
 	assert.Equal(t, "traefik", *ingress.Spec.IngressClassName)
+}
+
+func TestDeploy_UsesConfiguredNamespace(t *testing.T) {
+	k8sClient := fake.NewClientBuilder().WithScheme(testScheme(t)).WithStatusSubresource(&appsv1.Deployment{}).Build()
+	client := NewAppK8sClient(k8sClient, nil, "custom-apps", &config.InternalAppConfig{
+		BaseDomain:                   "ops.fzyun.io",
+		IngressClassName:             "traefik",
+		NamespacedNameSuffixTemplate: "{{ project }}-{{ domain }}",
+	})
+
+	require.NoError(t, client.Deploy(context.Background(), testApp("proj", "dev", "myapp", "nginx:latest")))
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, k8sClient.Get(context.Background(), ctrlclient.ObjectKey{Namespace: "custom-apps", Name: "myapp-proj-dev"}, deployment))
+	assert.Equal(t, "custom-apps", deployment.Namespace)
+	assert.Equal(t, "http://{app_fqdn}-proj-dev.custom-apps.svc.cluster.local", deployment.Spec.Template.Spec.Containers[0].Env[0].Value)
+}
+
+func TestDeploy_InjectsExecutionEnvAndSecretWebhookMetadata(t *testing.T) {
+	client := testClient(t)
+	app := testApp("proj", "dev", "myapp", "nginx:latest")
+	app.Spec.SecurityContext = &flyteapp.SecurityContext{
+		Secrets: []*flytecoreapp.Secret{{Group: "my_group", Key: "my_key", MountRequirement: flytecoreapp.Secret_ENV_VAR}},
+	}
+	require.NoError(t, client.Deploy(context.Background(), app))
+
+	deployment := &appsv1.Deployment{}
+	require.NoError(t, client.k8sClient.Get(context.Background(), clientKey("myapp-proj-dev"), deployment))
+	env := map[string]string{}
+	for _, item := range deployment.Spec.Template.Spec.Containers[0].Env {
+		env[item.Name] = item.Value
+	}
+	assert.Equal(t, "proj", env["FLYTE_INTERNAL_EXECUTION_PROJECT"])
+	assert.Equal(t, "dev", env["FLYTE_INTERNAL_EXECUTION_DOMAIN"])
+	assert.Equal(t, "flyte", deployment.Spec.Template.Labels["organization"])
+	assert.Equal(t, "proj", deployment.Spec.Template.Labels["project"])
+	assert.Equal(t, "dev", deployment.Spec.Template.Labels["domain"])
+	assert.Equal(t, "true", deployment.Spec.Template.Labels["inject-flyte-secrets"])
+	assert.Contains(t, deployment.Spec.Template.Annotations, "flyte.secrets/s0")
 }
 
 func TestDeploy_K8sPodPayloadPreservesVLLMShape(t *testing.T) {

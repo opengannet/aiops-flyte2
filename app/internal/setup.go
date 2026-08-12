@@ -29,7 +29,7 @@ func Setup(ctx context.Context, sc *stdlibapp.SetupContext, cfg *appconfig.Inter
 		return nil
 	}
 
-	appK8sClient := appk8s.NewAppK8sClient(sc.K8sClient, sc.K8sCache, cfg)
+	appK8sClient := appk8s.NewAppK8sClient(sc.K8sClient, sc.K8sCache, sc.Namespace, cfg)
 	internalAppSvc := service.NewInternalAppService(appK8sClient, impl.NewCloudStorageRepo(sc.DB))
 
 	if err := appK8sClient.StartWatching(ctx); err != nil {
@@ -59,7 +59,7 @@ func Setup(ctx context.Context, sc *stdlibapp.SetupContext, cfg *appconfig.Inter
 	logger.Infof(ctx, "Mounted InternalAppService at /internal%s", path)
 
 	if sc.K8sConfig != nil {
-		streamer, err := service.NewK8sAppLogStreamer(sc.K8sConfig)
+		streamer, err := service.NewK8sAppLogStreamer(sc.K8sConfig, sc.Namespace)
 		if err != nil {
 			return fmt.Errorf("internalapp: failed to create log streamer: %w", err)
 		}

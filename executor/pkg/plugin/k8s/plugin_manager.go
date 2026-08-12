@@ -80,7 +80,13 @@ func (pm *PluginManager) addObjectMetadata(taskCtx pluginsCore.TaskExecutionMeta
 	o.SetNamespace(taskCtx.GetNamespace())
 	o.SetAnnotations(pluginsUtils.UnionMaps(cfg.DefaultAnnotations, o.GetAnnotations(), pluginsUtils.CopyMap(taskCtx.GetAnnotations())))
 	o.SetLabels(pluginsUtils.UnionMaps(cfg.DefaultLabels, o.GetLabels(), pluginsUtils.CopyMap(taskCtx.GetLabels())))
-	o.SetName(taskCtx.GetTaskExecutionID().GetGeneratedName())
+	name := taskCtx.GetTaskExecutionID().GetGeneratedName()
+	if pm.plugin.GetProperties().GeneratedNameMaxLength != nil {
+		if truncatedName, err := taskCtx.GetTaskExecutionID().GetGeneratedNameWith(0, *pm.plugin.GetProperties().GeneratedNameMaxLength); err == nil {
+			name = truncatedName
+		}
+	}
+	o.SetName(name)
 
 	if !pm.plugin.GetProperties().DisableInjectOwnerReferences && !cfg.DisableInjectOwnerReferences {
 		o.SetOwnerReferences([]metav1.OwnerReference{taskCtx.GetOwnerReference()})
@@ -112,6 +118,13 @@ func (pm *PluginManager) launchResource(ctx context.Context, tCtx pluginsCore.Ta
 		}
 		if k8serrors.IsRequestEntityTooLargeError(err) {
 			return pluginsCore.DoTransition(pluginsCore.PhaseInfoFailure("EntityTooLarge", err.Error(), nil)), nil
+		}
+		// Admission/validation rejections (e.g. a generated object or derived child name
+		// exceeding k8s length limits) are deterministic: retrying re-submits the identical
+		// object and fails the same way, leaving the execution stuck RUNNING. Fast-fail
+		// instead of looping via UnknownTransition.
+		if k8serrors.IsInvalid(err) {
+			return pluginsCore.DoTransition(pluginsCore.PhaseInfoFailure("InvalidResource", err.Error(), nil)), nil
 		}
 		reason := k8serrors.ReasonForError(err)
 		logger.Errorf(ctx, "Failed to launch job, system error. err: %v", err)
@@ -228,7 +241,9 @@ func (pm *PluginManager) Handle(ctx context.Context, tCtx pluginsCore.TaskExecut
 	pluginState := PluginState{}
 	if v, err := tCtx.PluginStateReader().Get(&pluginState); err != nil {
 		if v != pluginStateVersion {
-			return pluginsCore.DoTransition(pluginsCore.PhaseInfoRetryableFailure(errors.CorruptedPluginState,
+			// Failing to read plugin state is deterministic, the stored bytes don't
+			// change between reconciles, so fail permanently instead of retrying.
+			return pluginsCore.DoTransition(pluginsCore.PhaseInfoSystemFailureWithCleanup(errors.CorruptedPluginState,
 				fmt.Sprintf("plugin state version mismatch expected [%d] got [%d]", pluginStateVersion, v), nil)), nil
 		}
 		return pluginsCore.UnknownTransition, errors.Wrapf(errors.CorruptedPluginState, err, "Failed to read unmarshal custom state")
