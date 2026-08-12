@@ -62,8 +62,8 @@ export const uiText = {
   trigger: "触发器",
   triggers: "触发器",
   trainingTasks: "训练任务",
-  accessApiDocs: "访问API文档",
-  browseApiReference: "查看接口说明",
+  apiDocs: "API文档",
+  userDocs: "用户文档",
   viewRunDetails: "查看运行详情",
 } as const;
 

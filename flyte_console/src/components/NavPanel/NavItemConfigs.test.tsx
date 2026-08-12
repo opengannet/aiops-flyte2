@@ -4,7 +4,10 @@
 
 import { getUiText } from "@/lib/uiText";
 import { describe, expect, it } from "vitest";
-import { useDefaultItems as getDefaultItems } from "./NavItemConfigs";
+import {
+  useDefaultItems as getDefaultItems,
+  useDefaultOrgItems as getDefaultOrgItems,
+} from "./NavItemConfigs";
 
 describe("default navigation items", () => {
   it("places training tasks directly after development instances", () => {
@@ -19,6 +22,15 @@ describe("default navigation items", () => {
       getUiText("tasks"),
       getUiText("apiKeys"),
       getUiText("apps"),
+    ]);
+  });
+
+  it("uses one unified documentation widget for organization navigation", () => {
+    expect(getDefaultOrgItems()).toEqual([
+      expect.objectContaining({
+        displayText: getUiText("documentation"),
+        type: "widget",
+      }),
     ]);
   });
 });

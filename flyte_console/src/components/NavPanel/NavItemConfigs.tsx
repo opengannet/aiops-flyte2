@@ -2,11 +2,9 @@
  * © Copyright Union Systems Inc 2026. All rights reserved.
  */
 
-import { FLYTE_DOCS_FLYTE2_URL } from "@/lib/constants";
 import { useDomainStore } from "@/lib/DomainStore";
 import { formatRecentlyViewedLabel, getUiText } from "@/lib/uiText";
 import { FolderIcon } from "@heroicons/react/16/solid";
-import { DocumentTextIcon } from "@heroicons/react/20/solid";
 import {
   AcademicCapIcon,
   CodeBracketIcon,
@@ -19,7 +17,7 @@ import {
 import { AppsIcon } from "../icons/AppsIcon";
 import { RunsIcon } from "../icons/RunsIcon";
 import { TriggersIcon } from "../icons/TriggersIcon";
-import { EnterpriseCTA } from "./EnterpriseCTA";
+import { DocumentationCard } from "./DocumentationCard";
 import { NavPanelWidth, NavWidget, type NavLink as NavLinkType } from "./types";
 
 export const ProjectsLink: NavLinkType = {
@@ -144,21 +142,10 @@ export const useDefaultItems = () => {
   ].filter(Boolean) as NavLinkType[];
 };
 
-export const DocumentationLink: NavLinkType = {
+export const DocumentationCardWidget: NavWidget = {
   displayText: getUiText("documentation"),
-  makeHref: () => FLYTE_DOCS_FLYTE2_URL,
-  icon: <DocumentTextIcon className="h-4" />,
-  type: "link",
-  target: "_blank",
-};
-
-export const EnterpriseCTAWidget: NavWidget = {
-  displayText: "enterpriseCTA",
   type: "widget",
-  widget: (size) => <EnterpriseCTA size={size} />,
+  widget: (size) => <DocumentationCard size={size} />,
 };
 
-export const useDefaultOrgItems = () => [
-  DocumentationLink,
-  EnterpriseCTAWidget,
-];
+export const useDefaultOrgItems = () => [DocumentationCardWidget];
