@@ -38,6 +38,13 @@ export type HawkRunLogsResult = {
   lines: HawkRunLogLine[];
 };
 
+export type HawkContainerLogsParams = {
+  containerIdRegex: string;
+  start: number;
+  end: number;
+  limit?: number;
+};
+
 export type HawkRunLogsDependencies = HawkRunTargetDependencies & {
   queryHawkLogs?: (input: {
     containerIds: string[];
@@ -98,10 +105,7 @@ function buildLogsWindow(
   const now = nowSeconds();
   const shouldUseLiveEnd = shouldUseLiveLogEnd(attempt, derived.end);
   const rawEnd =
-    params.end ??
-    (shouldUseLiveEnd ? now : undefined) ??
-    derived.end ??
-    now;
+    params.end ?? (shouldUseLiveEnd ? now : undefined) ?? derived.end ?? now;
   const rawStart =
     params.start ?? derived.start ?? rawEnd - DEFAULT_LOG_WINDOW_SECONDS;
 
@@ -117,6 +121,22 @@ function buildLogsWindow(
     rawEnd + (shouldPadEnd ? LOG_WINDOW_PADDING_SECONDS : 0),
   );
   return { start, end };
+}
+
+export async function getHawkContainerLogs({
+  containerIdRegex,
+  start,
+  end,
+  limit = DEFAULT_LOG_LIMIT,
+}: HawkContainerLogsParams): Promise<HawkRunLogLine[]> {
+  const response = await queryHawkApiLogs({
+    containerIds: [],
+    containerIdRegex,
+    start,
+    end,
+    limit,
+  });
+  return entriesToLogLines(response.entries ?? []);
 }
 
 function shouldUseLiveLogEnd(
@@ -226,11 +246,13 @@ function maxDefined(values: Array<number | undefined>) {
 
 async function queryHawkApiLogs({
   containerIds,
+  containerIdRegex,
   start,
   end,
   limit,
 }: {
   containerIds: string[];
+  containerIdRegex?: string;
   start: number;
   end: number;
   limit: number;
@@ -247,6 +269,9 @@ async function queryHawkApiLogs({
   const url = new URL("/api/v1/logs", trimTrailingSlash(hawkUrl));
   for (const containerId of containerIds) {
     url.searchParams.append("container_id", containerId);
+  }
+  if (containerIdRegex) {
+    url.searchParams.set("container_id_regex", containerIdRegex);
   }
   url.searchParams.set("from", String(start * 1000));
   url.searchParams.set("to", String(end * 1000));

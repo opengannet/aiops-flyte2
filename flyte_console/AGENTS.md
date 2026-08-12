@@ -91,7 +91,11 @@ return errorEnvelope(statusError("id is required", 400));
 - `runId` 如需返回，应表示接口实际读取的完整 Flyte run id，格式为
   `org/project/domain/name`。
 - 外部 clear 接口使用 `DELETE /v2/api/aione/{type}/{id}/clear`。`type` 支持
-  `instance`、`task`、`store`；其中 run/status/stop 仍只支持 `instance` 和 `task`。
+  `instance`、`task`、`store`。run 支持 `instance`、`task`、`model`；status、stop、
+  log、monitor 支持 `instance`、`task`、`model`；runs 只支持 `instance`。
+- model status/stop/log/monitor 必须通过带 `flyte.org/app-managed=true` 和
+  `flyte.org/app-name=<normalized-name>` label 的 Service 定位，只接受 VLLM App。
+  日志和指标使用稳定的 VLLM container id 正则覆盖历史 Pod，不依赖 Deployment 读取权限。
 - 外部云存储容量接口使用 `GET /v2/api/aione/pvc/{id}/size`，`id` 是云存储 id。
   成功时返回
   `{ status: 200, data: { used, provisioned, available, usagePercent, statsSource, statsTime } }`。
@@ -196,4 +200,5 @@ C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe D:\flyte-work\
 - 对应 `tests_smoke/*_smoke.py`。
 - `tests_smoke/test_instance_smoke_cli.py` 中的脚本行为测试。
 - `tests_smoke/test_task_smoke_cli.py` 和 `tests_smoke/test_store_smoke_cli.py` 中的脚本行为测试。
+- `tests_smoke/test_model_smoke_cli.py` 中的 model 脚本行为测试。
 - 相关 `route.test.ts`。

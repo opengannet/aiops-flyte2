@@ -66,3 +66,67 @@ ModelRunRequest:
     code: { type: string }
     profile: { type: string, enum: [VLLM] }
     resourceDefinition: { type: object }
+ModelStatusEnvelope:
+  type: object
+  required: [status, data]
+  properties:
+    status: { type: integer, const: 200 }
+    data:
+      type: object
+      required:
+        [name, deploymentStatus, substate, message, currentReplicas, url]
+      properties:
+        name: { type: string, example: qwen-app }
+        deploymentStatus:
+          type: integer
+          enum: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+          description: 0 unspecified, 1 unassigned, 2 assigned, 3 pending, 4 stopped, 5 started (deprecated), 6 failed, 7 active, 8 scaling up, 9 scaling down, 10 deploying.
+          example: 7
+        substate:
+          type: integer
+          enum: [0, 1, 2, 3, 4, 5, 6, 7]
+          description: 0 unspecified, 1 pulling image, 2 initializing, 3 webhook error, 4 image pull error, 5 secret mount error, 6 crash loop, 7 OOM killed.
+          example: 0
+        message: { type: string, example: "" }
+        currentReplicas: { type: integer, minimum: 0, example: 1 }
+        url: { type: string, example: "https://qwen-app.example" }
+LogEnvelope:
+  type: object
+  required: [status, data]
+  properties:
+    status: { type: integer, const: 200 }
+    data:
+      type: object
+      required: [total, logs]
+      properties:
+        total: { type: integer, minimum: 0 }
+        logs:
+          type: array
+          items:
+            type: object
+            required: [time, log]
+            properties:
+              time: { type: string }
+              log: { type: string }
+MonitorEnvelope:
+  type: object
+  required: [status, data]
+  properties:
+    status: { type: integer, const: 200 }
+    data:
+      type: array
+      items:
+        type: object
+        required: [time]
+        properties:
+          time: { type: string, format: date-time }
+          cpu: { type: number }
+          memory: { type: number }
+        additionalProperties:
+          oneOf:
+            - type: string
+            - type: number
+            - type: object
+              properties:
+                gpu: { type: number }
+                vram: { type: number }

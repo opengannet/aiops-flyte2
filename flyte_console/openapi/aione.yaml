@@ -53,8 +53,10 @@ components:
   parameters:
     id:
       $ref: ./components/parameters.yaml#/id
-    executionType:
-      $ref: ./components/parameters.yaml#/executionType
+    managedType:
+      $ref: ./components/parameters.yaml#/managedType
+    instanceType:
+      $ref: ./components/parameters.yaml#/instanceType
     runType:
       $ref: ./components/parameters.yaml#/runType
     clearType:
@@ -93,3 +95,9 @@ components:
       $ref: ./components/schemas.yaml#/TaskRunRequest
     ModelRunRequest:
       $ref: ./components/schemas.yaml#/ModelRunRequest
+    ModelStatusEnvelope:
+      $ref: ./components/schemas.yaml#/ModelStatusEnvelope
+    LogEnvelope:
+      $ref: ./components/schemas.yaml#/LogEnvelope
+    MonitorEnvelope:
+      $ref: ./components/schemas.yaml#/MonitorEnvelope

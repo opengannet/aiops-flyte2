@@ -8,6 +8,8 @@ const getDevelopmentInstanceByIdMock = vi.hoisted(() => vi.fn());
 const getKubernetesClientConfigMock = vi.hoisted(() => vi.fn());
 const requestKubernetesMock = vi.hoisted(() => vi.fn());
 const getHawkRunLogsMock = vi.hoisted(() => vi.fn());
+const getHawkContainerLogsMock = vi.hoisted(() => vi.fn());
+const getAppMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@connectrpc/connect", async () => {
   const actual = await vi.importActual<typeof import("@connectrpc/connect")>(
@@ -16,18 +18,20 @@ vi.mock("@connectrpc/connect", async () => {
   return {
     ...actual,
     createClient: vi.fn((service: { typeName?: string }) =>
-      service.typeName === "flyteidl2.trainingtask.TrainingTaskService"
-        ? {
-            getTrainingTaskById: getTrainingTaskByIdMock,
-          }
-        : service.typeName ===
-            "flyteidl2.developmentinstance.DevelopmentInstanceService"
+      service.typeName === "flyteidl2.app.AppService"
+        ? { get: getAppMock }
+        : service.typeName === "flyteidl2.trainingtask.TrainingTaskService"
           ? {
-              getDevelopmentInstanceById: getDevelopmentInstanceByIdMock,
+              getTrainingTaskById: getTrainingTaskByIdMock,
             }
-          : {
-              getRunDetails: getRunDetailsMock,
-            },
+          : service.typeName ===
+              "flyteidl2.developmentinstance.DevelopmentInstanceService"
+            ? {
+                getDevelopmentInstanceById: getDevelopmentInstanceByIdMock,
+              }
+            : {
+                getRunDetails: getRunDetailsMock,
+              },
     ),
   };
 });
@@ -43,6 +47,7 @@ vi.mock("@/server/kubernetes/client", () => ({
 
 vi.mock("@/server/hawk/run-logs", () => ({
   getHawkRunLogs: getHawkRunLogsMock,
+  getHawkContainerLogs: getHawkContainerLogsMock,
 }));
 
 const latestLogContext = {
@@ -136,6 +141,19 @@ describe("aione external typed log route", () => {
         { timestamp: { seconds: 300, nanos: 0 }, message: "line 3" },
         { timestamp: { seconds: 400, nanos: 0 }, message: "line 4" },
       ],
+    });
+    getHawkContainerLogsMock.mockResolvedValue([
+      { timestamp: { seconds: 1710000001, nanos: 0 }, message: "ready" },
+      { timestamp: { seconds: 1710000002, nanos: 0 }, message: "serving" },
+    ]);
+    getAppMock.mockResolvedValue({
+      app: {
+        org: "actual-org",
+        project: "aione",
+        domain: "development",
+        name: "qwen-app",
+        spec: { profile: { type: "VLLM" } },
+      },
     });
   });
 
@@ -232,6 +250,93 @@ describe("aione external typed log route", () => {
       ],
     });
     expect(requestKubernetesMock).not.toHaveBeenCalled();
+  });
+
+  it("returns model logs using the stable VLLM container regex", async () => {
+    requestKubernetesMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          {
+            metadata: {
+              name: "qwen-app-aione-development",
+              namespace: "flyte",
+              creationTimestamp: "2024-03-09T16:00:00Z",
+              labels: {
+                "flyte.org/app-managed": "true",
+                "flyte.org/app-name": "qwen-app",
+                "flyte.org/project": "aione",
+                "flyte.org/domain": "development",
+              },
+            },
+          },
+        ],
+      }),
+    });
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/v2/api/aione/model/Qwen_App/log?page=1&size=1",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
+      { params: Promise.resolve({ type: "model", id: "Qwen_App" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(getHawkContainerLogsMock).toHaveBeenCalledWith({
+      containerIdRegex:
+        "^/k8s/flyte/qwen-app-aione-development-[^/-]+-[^/-]+/vllm$",
+      start: 1710000000,
+      end: expect.any(Number),
+      limit: 10000,
+    });
+    await expect(response.json()).resolves.toEqual({
+      status: 200,
+      data: {
+        total: 2,
+        logs: [{ time: "2024-03-09T16:00:02.000Z", log: "serving" }],
+      },
+    });
+  });
+
+  it("returns a 502 envelope when Hawk model log reading fails", async () => {
+    requestKubernetesMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        items: [
+          {
+            metadata: {
+              name: "qwen-app-aione-development",
+              labels: {
+                "flyte.org/project": "aione",
+                "flyte.org/domain": "development",
+              },
+            },
+          },
+        ],
+      }),
+    });
+    getHawkContainerLogsMock.mockRejectedValue(new Error("hawk unavailable"));
+
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest("http://localhost/v2/api/aione/model/qwen-app/log", {
+        headers: { authorization: "Bearer external-key" },
+      }),
+      { params: Promise.resolve({ type: "model", id: "qwen-app" }) },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      status: 502,
+      message: "failed to read Hawk model logs",
+    });
   });
 
   it("returns the latest page first when ordering external Hawk logs", async () => {
@@ -510,7 +615,7 @@ describe("aione external typed log route", () => {
     expect(response.status).toBe(400);
     expect(body).toEqual({
       status: 400,
-      message: "type must be instance or task",
+      message: "type must be instance, task, or model",
     });
   });
 });

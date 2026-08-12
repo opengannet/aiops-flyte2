@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LogLineOriginator } from "@/gen/flyteidl2/logs/dataplane/payload_pb";
-import { getHawkRunLogs } from "@/server/hawk/run-logs";
+import { getHawkContainerLogs, getHawkRunLogs } from "@/server/hawk/run-logs";
 
 const baseParams = {
   org: "aione",
@@ -15,6 +15,44 @@ const baseParams = {
 describe("Hawk run logs", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("queries Hawk with one container id regex", async () => {
+    vi.stubEnv("HAWK_API_URL", "https://hawk.example/base");
+    vi.stubEnv("HAWK_API_KEY", "hawk-key");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        entries: [{ timestamp: 100123, message: "ready" }],
+      }),
+    } as Response);
+
+    const result = await getHawkContainerLogs({
+      containerIdRegex: "^/k8s/flyte/qwen-app-[^/-]+-[^/-]+/vllm$",
+      start: 100,
+      end: 200,
+      limit: 10000,
+    });
+
+    const [input, init] = fetchMock.mock.calls[0];
+    const url = new URL(String(input));
+    expect(url.pathname).toBe("/api/v1/logs");
+    expect(url.searchParams.getAll("container_id")).toEqual([]);
+    expect(url.searchParams.get("container_id_regex")).toBe(
+      "^/k8s/flyte/qwen-app-[^/-]+-[^/-]+/vllm$",
+    );
+    expect(url.searchParams.get("from")).toBe("100000");
+    expect(url.searchParams.get("to")).toBe("200000");
+    expect(url.searchParams.get("limit")).toBe("10000");
+    expect(init?.headers).toEqual({ "X-API-Key": "hawk-key" });
+    expect(result).toEqual([
+      {
+        timestamp: { seconds: 100, nanos: 123000000 },
+        message: "ready",
+        originator: LogLineOriginator.USER,
+      },
+    ]);
   });
 
   it("queries Hawk by selected attempt container and returns sorted JSON-safe log lines", async () => {

@@ -7,6 +7,9 @@ const getTrainingTaskByIdMock = vi.hoisted(() => vi.fn());
 const stopTrainingTaskMock = vi.hoisted(() => vi.fn());
 const stopDevelopmentInstanceMock = vi.hoisted(() => vi.fn());
 const getKubernetesClientConfigMock = vi.hoisted(() => vi.fn());
+const requestKubernetesMock = vi.hoisted(() => vi.fn());
+const getAppMock = vi.hoisted(() => vi.fn());
+const updateAppMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@connectrpc/connect", async () => {
   const actual = await vi.importActual<typeof import("@connectrpc/connect")>(
@@ -25,9 +28,11 @@ vi.mock("@connectrpc/connect", async () => {
           ? {
               stopDevelopmentInstance: stopDevelopmentInstanceMock,
             }
-        : {
-            abortRun: abortRunMock,
-          },
+          : service.typeName === "flyteidl2.app.AppService"
+            ? { get: getAppMock, update: updateAppMock }
+            : {
+                abortRun: abortRunMock,
+              },
     ),
   };
 });
@@ -38,6 +43,7 @@ vi.mock("@connectrpc/connect-web", () => ({
 
 vi.mock("@/server/kubernetes/client", () => ({
   getKubernetesClientConfig: getKubernetesClientConfigMock,
+  requestKubernetes: requestKubernetesMock,
 }));
 
 describe("aione external typed stop route", () => {
@@ -65,14 +71,53 @@ describe("aione external typed stop route", () => {
     abortRunMock.mockResolvedValue({});
     stopDevelopmentInstanceMock.mockResolvedValue({});
     stopTrainingTaskMock.mockResolvedValue({});
+    updateAppMock.mockResolvedValue({});
+    requestKubernetesMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => ({
+        items: [
+          {
+            metadata: {
+              name: "mod-test-aione-development",
+              namespace: "flyte",
+              labels: {
+                "flyte.org/project": "aione",
+                "flyte.org/domain": "development",
+              },
+            },
+          },
+        ],
+      }),
+    });
+    getAppMock.mockResolvedValue({
+      app: {
+        metadata: {
+          id: {
+            org: "aione",
+            project: "aione",
+            domain: "development",
+            name: "mod-test",
+          },
+        },
+        spec: {
+          desiredState: 3,
+          profile: { type: "VLLM" },
+          clusterPool: "gpu",
+        },
+      },
+    });
   });
 
   it("rejects requests without an external API key using the public envelope", async () => {
     const { POST } = await import("./route");
     const response = await POST(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/stop", {
-        method: "POST",
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/stop",
+        {
+          method: "POST",
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
@@ -84,10 +129,13 @@ describe("aione external typed stop route", () => {
   it("stops an instance by external instance id", async () => {
     const { POST } = await import("./route");
     const response = await POST(
-      new NextRequest("http://localhost/v2/api/aione/instance/ins-contract-1/stop", {
-        method: "POST",
-        headers: { authorization: "Bearer external-key" },
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/instance/ins-contract-1/stop",
+        {
+          method: "POST",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
       { params: Promise.resolve({ type: "instance", id: "ins-contract-1" }) },
     );
     const body = await response.json();
@@ -107,10 +155,13 @@ describe("aione external typed stop route", () => {
   it("stops a task by external task id", async () => {
     const { POST } = await import("./route");
     const response = await POST(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/stop", {
-        method: "POST",
-        headers: { authorization: "Bearer external-key" },
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/stop",
+        {
+          method: "POST",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
@@ -131,6 +182,66 @@ describe("aione external typed stop route", () => {
       expect.objectContaining({ id: "task-contract-1" }),
     );
     expect(body).toEqual({ status: 200, data: {} });
+  });
+
+  it("stops a model app while preserving its existing spec", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("http://localhost/v2/api/aione/model/mod-test/stop", {
+        method: "POST",
+        headers: { authorization: "Bearer external-key" },
+      }),
+      { params: Promise.resolve({ type: "model", id: "mod-test" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: 200, data: {} });
+    expect(updateAppMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reason: "Stopped from AIONE external model API",
+        app: expect.objectContaining({
+          spec: expect.objectContaining({
+            desiredState: 1,
+            clusterPool: "gpu",
+          }),
+        }),
+      }),
+    );
+  });
+
+  it("keeps repeated model stop requests idempotent", async () => {
+    getAppMock.mockResolvedValue({
+      app: {
+        metadata: { id: { name: "mod-test" } },
+        spec: {
+          desiredState: 1,
+          profile: { type: "VLLM" },
+          clusterPool: "gpu",
+        },
+      },
+    });
+
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("http://localhost/v2/api/aione/model/mod-test/stop", {
+        method: "POST",
+        headers: { authorization: "Bearer external-key" },
+      }),
+      { params: Promise.resolve({ type: "model", id: "mod-test" }) },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: 200, data: {} });
+    expect(updateAppMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        app: expect.objectContaining({
+          spec: expect.objectContaining({
+            desiredState: 1,
+            clusterPool: "gpu",
+          }),
+        }),
+      }),
+    );
   });
 
   it("returns a 404 envelope when a task external id has no training task", async () => {
@@ -162,10 +273,13 @@ describe("aione external typed stop route", () => {
 
     const { POST } = await import("./route");
     const response = await POST(
-      new NextRequest("http://localhost/v2/api/aione/task/task-contract-1/stop", {
-        method: "POST",
-        headers: { authorization: "Bearer external-key" },
-      }),
+      new NextRequest(
+        "http://localhost/v2/api/aione/task/task-contract-1/stop",
+        {
+          method: "POST",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
       { params: Promise.resolve({ type: "task", id: "task-contract-1" }) },
     );
     const body = await response.json();
@@ -192,7 +306,7 @@ describe("aione external typed stop route", () => {
     expect(response.status).toBe(400);
     expect(body).toEqual({
       status: 400,
-      message: "type must be instance or task",
+      message: "type must be instance, task, or model",
     });
   });
 });

@@ -3,6 +3,7 @@
  */
 
 import { create } from "@bufbuild/protobuf";
+import { createHash } from "node:crypto";
 import { createClient, Code, ConnectError } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import {
@@ -60,12 +61,20 @@ import {
   GetCloudStorageByIdRequestSchema,
   MaterializeCloudStorageRequestSchema,
 } from "@/gen/flyteidl2/aione/cloudstorage/cloud_storage_service_pb";
+import {
+  AppSchema,
+  IdentifierSchema,
+  Spec_DesiredState,
+  type App,
+} from "@/gen/flyteidl2/app/app_definition_pb";
 import { AppService } from "@/gen/flyteidl2/app/app_service_pb";
 import {
   CreateModelAppRequestSchema,
+  GetRequestSchema as GetAppRequestSchema,
   ModelAppInputSchema,
   ModelCodeSourceSchema,
   ModelResourceDefinitionSchema,
+  UpdateRequestSchema as UpdateAppRequestSchema,
 } from "@/gen/flyteidl2/app/app_payload_pb";
 import {
   CreateTrainingTaskRequestSchema,
@@ -105,14 +114,36 @@ import {
   buildWorkspaceLabels,
   getAioneNodePortRange,
 } from "@/server/aione/helpers";
-import { getHawkRunLogs, type HawkRunLogLine } from "@/server/hawk/run-logs";
+import {
+  getHawkContainerLogs,
+  getHawkRunLogs,
+  type HawkRunLogLine,
+} from "@/server/hawk/run-logs";
 import { buildCloudStoragePVCName } from "@/server/cloud-storage/naming";
 
-export type AioneExternalType = "instance" | "task";
-export type AioneExternalRunType = AioneExternalType | "model";
-export type AioneClearType = AioneExternalType | "store";
+export type AioneFlyteExternalType = "instance" | "task";
+export type AioneExternalType = AioneFlyteExternalType | "model";
+export type AioneExternalRunType = AioneExternalType;
+export type AioneClearType = AioneFlyteExternalType | "store";
+export type AioneModelAppContext = {
+  app: App;
+  namespace: string;
+  serviceName: string;
+  createdAtSeconds?: number;
+};
 type DevelopmentInstanceCloudStorageMounts =
   DevelopmentInstanceFormValues["cloudStorageMounts"];
+
+type KubernetesModelServiceList = {
+  items?: Array<{
+    metadata?: {
+      name?: string;
+      namespace?: string;
+      creationTimestamp?: string;
+      labels?: Record<string, string>;
+    };
+  }>;
+};
 
 const NODE_PORT_RETRIES = 3;
 const EXTERNAL_HAWK_LOG_LIMIT = 10000;
@@ -149,8 +180,8 @@ let allocationLock: Promise<void> = Promise.resolve();
 
 export function parseAioneExternalType(type: string): AioneExternalType {
   const resolved = type.trim();
-  if (resolved !== "instance" && resolved !== "task") {
-    throw statusError("type must be instance or task", 400);
+  if (resolved !== "instance" && resolved !== "task" && resolved !== "model") {
+    throw statusError("type must be instance, task, or model", 400);
   }
   return resolved;
 }
@@ -194,9 +225,14 @@ export async function stopAioneExternalRun(
   type: AioneExternalType,
   sourceId: string,
 ) {
-  return type === "task"
-    ? stopTrainingTaskRun(sourceId)
-    : stopInstanceRun(sourceId);
+  switch (type) {
+    case "model":
+      return stopModelApp(sourceId);
+    case "task":
+      return stopTrainingTaskRun(sourceId);
+    case "instance":
+      return stopInstanceRun(sourceId);
+  }
 }
 
 export async function clearAioneExternalResources(
@@ -217,6 +253,9 @@ export async function getAioneExternalStatus(
   type: AioneExternalType,
   sourceId: string,
 ) {
+  if (type === "model") {
+    return getModelAppStatus(sourceId);
+  }
   const runId =
     type === "task"
       ? await resolveTaskRunIdentifier(sourceId)
@@ -233,7 +272,7 @@ export async function getAioneExternalStatus(
 }
 
 export async function getAioneExternalRunDetails(
-  type: AioneExternalType,
+  type: AioneFlyteExternalType,
   sourceId: string,
 ) {
   const { runId, resourceSpec } =
@@ -249,6 +288,9 @@ export async function getAioneExternalLogs(
   sourceId: string,
   pagination: { page: number; size: number },
 ) {
+  if (type === "model") {
+    return getModelAppLogs(sourceId, pagination);
+  }
   const runId =
     type === "task"
       ? await resolveTaskRunIdentifier(sourceId)
@@ -281,6 +323,181 @@ export async function getAioneExternalLogs(
   } catch {
     throw statusError("failed to read Hawk logs", 502);
   }
+}
+
+export async function getAioneModelAppContext(
+  sourceModelId: string,
+): Promise<AioneModelAppContext> {
+  const appName = normalizeExternalModelAppName(sourceModelId);
+  const { apiOrigin, namespace, token, ca } = await getKubernetesClientConfig(
+    AIONE_RUNTIME_NAMESPACE,
+  );
+  const services = await listKubernetesResources<KubernetesModelServiceList>({
+    apiOrigin,
+    namespace,
+    token,
+    ca,
+    apiPath: "/api/v1",
+    kind: "services",
+    labelSelector: [
+      "flyte.org/app-managed=true",
+      `flyte.org/app-name=${appName}`,
+    ].join(","),
+  });
+  const client = createAppClient();
+  const internalOrg =
+    process.env.EXTERNAL_API_FLYTE_ORG?.trim() || DEFAULT_AIONE_INTERNAL_ORG;
+  const matches: AioneModelAppContext[] = [];
+
+  for (const service of services.items ?? []) {
+    const metadata = service.metadata;
+    const project = metadata?.labels?.["flyte.org/project"]?.trim() ?? "";
+    const domain = metadata?.labels?.["flyte.org/domain"]?.trim() ?? "";
+    const serviceName = metadata?.name?.trim() ?? "";
+    if (!project || !domain || !serviceName) {
+      continue;
+    }
+    try {
+      const response = await client.get(
+        create(GetAppRequestSchema, {
+          identifier: {
+            case: "appId",
+            value: create(IdentifierSchema, {
+              org: internalOrg,
+              project,
+              domain,
+              name: appName,
+            }),
+          },
+        }),
+      );
+      const app = response.app;
+      if (!app || app.spec?.profile?.type?.trim().toUpperCase() !== "VLLM") {
+        continue;
+      }
+      matches.push({
+        app,
+        namespace: metadata?.namespace?.trim() || namespace,
+        serviceName,
+        createdAtSeconds: parseKubernetesTimestampSeconds(
+          metadata?.creationTimestamp,
+        ),
+      });
+    } catch (error) {
+      if (error instanceof ConnectError && error.code === Code.NotFound) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  if (matches.length === 0) {
+    throw statusError("model application not found", 404);
+  }
+  if (matches.length > 1) {
+    throw statusError("model application id is ambiguous", 409);
+  }
+  return matches[0];
+}
+
+export function buildAioneModelContainerIdRegex({
+  namespace,
+  serviceName,
+}: Pick<AioneModelAppContext, "namespace" | "serviceName">) {
+  return `^/k8s/${escapeRegExp(namespace)}/${escapeRegExp(serviceName)}-[^/-]+-[^/-]+/vllm$`;
+}
+
+export function normalizeExternalModelAppName(sourceModelId: string) {
+  const sourceId = sourceModelId.trim();
+  if (!sourceId) {
+    throw statusError("id is required", 400);
+  }
+  let normalized = sourceId
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  while (normalized.includes("--")) {
+    normalized = normalized.replaceAll("--", "-");
+  }
+  if (!normalized) {
+    throw statusError("model application id is invalid", 400);
+  }
+  const maxLength = 30;
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  const suffix = createHash("sha256")
+    .update(normalized)
+    .digest("hex")
+    .slice(0, 8);
+  const prefix = normalized
+    .slice(0, maxLength - suffix.length - 1)
+    .replace(/-+$/g, "");
+  return `${prefix}-${suffix}`;
+}
+
+async function getModelAppStatus(sourceModelId: string) {
+  const { app } = await getAioneModelAppContext(sourceModelId);
+  const condition = app.status?.conditions?.at(-1);
+  const ingress = app.status?.ingress;
+  return {
+    name: app.metadata?.id?.name ?? "",
+    deploymentStatus: condition?.deploymentStatus ?? 0,
+    substate: condition?.substate ?? 0,
+    message: condition?.message ?? "",
+    currentReplicas: app.status?.currentReplicas ?? 0,
+    url: ingress?.publicUrl || ingress?.cnameUrl || ingress?.vpcUrl || "",
+  };
+}
+
+async function stopModelApp(sourceModelId: string) {
+  const { app } = await getAioneModelAppContext(sourceModelId);
+  const updated = create(AppSchema, app);
+  if (!updated.spec) {
+    throw statusError("model application spec not found", 502);
+  }
+  updated.spec.desiredState = Spec_DesiredState.STOPPED;
+  await createAppClient().update(
+    create(UpdateAppRequestSchema, {
+      app: updated,
+      reason: "Stopped from AIONE external model API",
+    }),
+  );
+  return {};
+}
+
+async function getModelAppLogs(
+  sourceModelId: string,
+  pagination: { page: number; size: number },
+) {
+  const context = await getAioneModelAppContext(sourceModelId);
+  const end = Math.floor(Date.now() / 1000);
+  const start = context.createdAtSeconds ?? end - 30 * 60;
+  try {
+    const lines = await getHawkContainerLogs({
+      containerIdRegex: buildAioneModelContainerIdRegex(context),
+      start: Math.max(0, start),
+      end: Math.max(start + 1, end),
+      limit: EXTERNAL_HAWK_LOG_LIMIT,
+    });
+    return paginateLogLines(hawkRunLogLinesToExternalLines(lines), pagination);
+  } catch {
+    throw statusError("failed to read Hawk model logs", 502);
+  }
+}
+
+function parseKubernetesTimestampSeconds(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds)
+    ? Math.floor(milliseconds / 1000)
+    : undefined;
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export async function listAioneInstanceRuns(sourceInstanceId: string) {

@@ -1,20 +1,20 @@
 post:
   operationId: stopAioneResource
   tags: [Execution management]
-  summary: Stop an instance or training task
-  description: Stops the current run but does not delete runtime resources. Use clear after the run terminates.
+  summary: Stop an instance, training task, or model application
+  description: Stops the current run or sets a model application's desired state to STOPPED. It does not delete runtime resources.
   security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
   parameters:
-    - $ref: ../aione.yaml#/components/parameters/executionType
+    - $ref: ../aione.yaml#/components/parameters/managedType
     - $ref: ../aione.yaml#/components/parameters/id
   responses:
-    '200':
+    "200":
       description: A stop request was accepted.
       content:
         application/json:
           schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
           example: { status: 200, data: {} }
-    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
-    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
-    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
-    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }
+    "400": { $ref: ../aione.yaml#/components/responses/BadRequest }
+    "401": { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    "404": { $ref: ../aione.yaml#/components/responses/NotFound }
+    "502": { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

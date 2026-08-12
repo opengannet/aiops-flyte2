@@ -6,14 +6,22 @@ id:
   schema:
     type: string
     minLength: 1
-executionType:
+managedType:
   name: type
   in: path
   required: true
-  description: Instance or training-task type.
+  description: Instance, training-task, or model-application type.
   schema:
     type: string
-    enum: [instance, task]
+    enum: [instance, task, model]
+instanceType:
+  name: type
+  in: path
+  required: true
+  description: Development-instance type. The runs operation does not accept task or model.
+  schema:
+    type: string
+    enum: [instance]
 runType:
   name: type
   in: path

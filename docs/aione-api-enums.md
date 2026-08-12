@@ -102,6 +102,73 @@ UNSPECIFIED, QUEUED, WAITING_FOR_RESOURCES, INITIALIZING, RUNNING, PAUSED
 | `error` | 失败或终止时的错误信息。空字符串表示当前没有错误信息。 |
 | `durationSeconds` | 已运行时长，单位为秒。优先使用 Flyte 返回的 `durationMs`；没有该值时，根据 `startTime` 到 `endTime` 或当前时间计算。 |
 
+## Model Application 状态字段
+
+`GET /v2/api/aione/model/{id}/status` 返回 model application 自身的部署状态，
+不使用 `ActionPhase`：
+
+```json
+{
+  "status": 200,
+  "data": {
+    "name": "qwen-app",
+    "deploymentStatus": 7,
+    "substate": 0,
+    "message": "",
+    "currentReplicas": 1,
+    "url": "https://qwen-app.example"
+  }
+}
+```
+
+`deploymentStatus` 和 `substate` 是 App condition 中的数字枚举；没有 condition 时均为
+`0`，`message` 为空。URL 依次选择 `publicUrl`、`cnameUrl`、`vpcUrl`。
+
+`deploymentStatus`：
+
+| 值 | 名称 |
+| --- | --- |
+| `0` | `UNSPECIFIED` |
+| `1` | `UNASSIGNED` |
+| `2` | `ASSIGNED` |
+| `3` | `PENDING` |
+| `4` | `STOPPED` |
+| `5` | `STARTED`（已弃用） |
+| `6` | `FAILED` |
+| `7` | `ACTIVE` |
+| `8` | `SCALING_UP` |
+| `9` | `SCALING_DOWN` |
+| `10` | `DEPLOYING` |
+
+`substate`：
+
+| 值 | 名称 |
+| --- | --- |
+| `0` | `SUBSTATE_UNSPECIFIED` |
+| `1` | `PULLING_IMAGE` |
+| `2` | `INITIALIZING` |
+| `3` | `WEBHOOK_ERROR` |
+| `4` | `IMAGE_PULL_ERROR` |
+| `5` | `SECRET_MOUNT_ERROR` |
+| `6` | `CRASH_LOOP` |
+| `7` | `OOM_KILLED` |
+
+## 管理与可观测接口类型
+
+| 接口 | 支持的 `type` |
+| --- | --- |
+| `POST /v2/api/aione/{type}/run` | `instance`、`task`、`model` |
+| `GET /v2/api/aione/{type}/{id}/status` | `instance`、`task`、`model` |
+| `POST /v2/api/aione/{type}/{id}/stop` | `instance`、`task`、`model` |
+| `GET /v2/api/aione/{type}/{id}/log` | `instance`、`task`、`model` |
+| `GET /v2/api/aione/{type}/{id}/monitor` | `instance`、`task`、`model` |
+| `GET /v2/api/aione/{type}/{id}/runs` | 仅 `instance` |
+| `DELETE /v2/api/aione/{type}/{id}/clear` | `instance`、`task`、`store` |
+
+model log 保持 `{total, logs: [{time, log}]}` 分页结构。model monitor 支持
+`mode=cpu,memory,gpu` 和最长 24 小时的 `period`；GPU 数据以 `gpu_uuid` 为 key。
+日志受 CloudHawk `LOGS_TTL` 和单次最多 10,000 条限制，监控受 Hawk 指标保留期限制。
+
 ## 资源清理接口
 
 AIONE 外部资源清理使用 `DELETE` 方法：

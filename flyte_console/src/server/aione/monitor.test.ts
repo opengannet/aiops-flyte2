@@ -35,6 +35,107 @@ function getRunDetailsForMonitor() {
 }
 
 describe("AIONE monitor service", () => {
+  it("queries model CPU, memory, and GPU metrics by stable container regex", async () => {
+    const queryHawkRange = vi.fn(async ({ query }: { query: string }) => {
+      if (query.includes("cpu_usage_seconds_total")) {
+        return {
+          resultType: "matrix",
+          result: [{ values: [[1000, "55.5"]] }],
+        };
+      }
+      if (query.includes("memory_rss_bytes")) {
+        return {
+          resultType: "matrix",
+          result: [{ values: [[1000, "25"]] }],
+        };
+      }
+      if (query.includes("gpu_memory_usage_percent")) {
+        return {
+          resultType: "matrix",
+          result: [
+            {
+              metric: { gpu_uuid: "GPU-bbbb" },
+              values: [[1000, "40"]],
+            },
+          ],
+        };
+      }
+      return {
+        resultType: "matrix",
+        result: [
+          {
+            metric: { gpu_uuid: "GPU-bbbb" },
+            values: [[1000, "80"]],
+          },
+          {
+            metric: { gpu_uuid: "GPU-aaaa" },
+            values: [[1000, "70.125"]],
+          },
+        ],
+      };
+    });
+
+    const result = await getAioneExternalMonitor(
+      "model",
+      "Qwen_App",
+      { modes: ["cpu", "memory", "gpu"], periodSeconds: 300 },
+      {
+        nowSeconds: () => 1300,
+        getAioneModelAppContext: async () =>
+          ({
+            app: { spec: { profile: { type: "VLLM" } } },
+            namespace: "flyte.prod",
+            serviceName: "qwen.app-aione-development",
+          }) as any,
+        queryHawkRange: queryHawkRange as any,
+      },
+    );
+
+    const queries = queryHawkRange.mock.calls.map(([input]) => input.query);
+    const escapedRegex =
+      "^/k8s/flyte\\\\.prod/qwen\\\\.app-aione-development-[^/-]+-[^/-]+/vllm$";
+    expect(queries).toEqual(
+      expect.arrayContaining([
+        `100 * sum(rate(container_resources_cpu_usage_seconds_total{container_id=~"${escapedRegex}"}[2m])) / sum(container_resources_cpu_limit_cores{container_id=~"${escapedRegex}"})`,
+        `100 * sum(container_resources_memory_rss_bytes{container_id=~"${escapedRegex}"}) / sum(container_resources_memory_limit_bytes{container_id=~"${escapedRegex}"})`,
+        `avg by(gpu_uuid) (container_resources_gpu_usage_percent{container_id=~"${escapedRegex}"})`,
+        `avg by(gpu_uuid) (container_resources_gpu_memory_usage_percent{container_id=~"${escapedRegex}"})`,
+      ]),
+    );
+    expect(result).toEqual([
+      {
+        time: "1970-01-01T00:16:40.000Z",
+        cpu: 55.5,
+        memory: 25,
+        "GPU-aaaa": { gpu: 70.13 },
+        "GPU-bbbb": { gpu: 80, vram: 40 },
+      },
+    ]);
+  });
+
+  it("omits model samples with missing or zero metric denominators", async () => {
+    const result = await getAioneExternalMonitor(
+      "model",
+      "stopped-model",
+      { modes: ["cpu", "memory"], periodSeconds: 300 },
+      {
+        nowSeconds: () => 1300,
+        getAioneModelAppContext: async () =>
+          ({
+            app: { spec: { profile: { type: "VLLM" } } },
+            namespace: "flyte",
+            serviceName: "stopped-model-aione-development",
+          }) as any,
+        queryHawkRange: async () => ({
+          resultType: "matrix",
+          result: [{ values: [[1000, "NaN"]] }],
+        }),
+      },
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it("returns requested CPU, memory, and per-GPU percentage metrics", async () => {
     const getHawkRunMetricSeries = vi.fn(async () => ({
       targets: [
@@ -215,12 +316,10 @@ describe("AIONE monitor service", () => {
   ])(
     "aligns query range using the existing step for period $periodSeconds",
     async ({ periodSeconds, now, expected }) => {
-      const getHawkRunMetricSeries = vi.fn<HawkMetricSeriesQuery>(
-        async () => ({
-          targets: [],
-          metrics: {},
-        }),
-      );
+      const getHawkRunMetricSeries = vi.fn<HawkMetricSeriesQuery>(async () => ({
+        targets: [],
+        metrics: {},
+      }));
       const deps: AioneMonitorDependencies = {
         nowSeconds: () => now,
         getAioneExternalRunDetails: async () => getRunDetailsForMonitor(),

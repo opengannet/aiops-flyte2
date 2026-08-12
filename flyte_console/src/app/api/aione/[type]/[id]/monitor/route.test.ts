@@ -70,6 +70,27 @@ describe("aione external typed monitor route", () => {
     );
   });
 
+  it("accepts model as a monitor target type", async () => {
+    const { GET } = await import("./route");
+    const response = await GET(
+      new NextRequest(
+        "http://localhost/v2/api/aione/model/qwen-app/monitor?mode=gpu&period=1h",
+        {
+          method: "GET",
+          headers: { authorization: "Bearer external-key" },
+        },
+      ),
+      { params: Promise.resolve({ type: "model", id: "qwen-app" }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(getAioneExternalMonitorMock).toHaveBeenCalledWith(
+      "model",
+      "qwen-app",
+      { modes: ["gpu"], periodSeconds: 3600 },
+    );
+  });
+
   it("rejects invalid mode values before querying monitor data", async () => {
     const { GET } = await import("./route");
     const response = await GET(

@@ -5,10 +5,10 @@ get:
   description: This operation supports only type=instance.
   security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
   parameters:
-    - $ref: ../aione.yaml#/components/parameters/executionType
+    - $ref: ../aione.yaml#/components/parameters/instanceType
     - $ref: ../aione.yaml#/components/parameters/id
   responses:
-    '200':
+    "200":
       description: Instance run history.
       content:
         application/json:
@@ -22,9 +22,9 @@ get:
                   runName: notebook-01-r1
                   status: 4
                   nodePort: 30022
-                  startedAt: '2026-08-12T01:00:00.000Z'
-                  endedAt: ''
-    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
-    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
-    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
-    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }
+                  startedAt: "2026-08-12T01:00:00.000Z"
+                  endedAt: ""
+    "400": { $ref: ../aione.yaml#/components/responses/BadRequest }
+    "401": { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    "404": { $ref: ../aione.yaml#/components/responses/NotFound }
+    "502": { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

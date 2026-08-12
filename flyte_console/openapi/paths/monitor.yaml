@@ -4,24 +4,24 @@ get:
   summary: Get CPU, memory, or GPU monitoring series
   security: [{ bearerAuth: [] }, { apiKeyAuth: [] }]
   parameters:
-    - $ref: ../aione.yaml#/components/parameters/executionType
+    - $ref: ../aione.yaml#/components/parameters/managedType
     - $ref: ../aione.yaml#/components/parameters/id
     - $ref: ../aione.yaml#/components/parameters/monitorMode
     - $ref: ../aione.yaml#/components/parameters/monitorPeriod
   responses:
-    '200':
+    "200":
       description: Monitoring data points.
       content:
         application/json:
-          schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
+          schema: { $ref: ../aione.yaml#/components/schemas/MonitorEnvelope }
           example:
             status: 200
             data:
-              - time: '2026-08-12T01:00:00.000Z'
+              - time: "2026-08-12T01:00:00.000Z"
                 cpu: 52.1
                 memory: 38.4
-                gpu: { gpu: 66.2, vram: 42.0 }
-    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
-    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
-    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
-    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }
+                GPU-1234: { gpu: 66.2, vram: 42.0 }
+    "400": { $ref: ../aione.yaml#/components/responses/BadRequest }
+    "401": { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    "404": { $ref: ../aione.yaml#/components/responses/NotFound }
+    "502": { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

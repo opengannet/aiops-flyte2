@@ -1,10 +1,18 @@
 import type { ActionDetails } from "@/gen/flyteidl2/workflow/run_definition_pb";
 import {
+  buildAioneModelContainerIdRegex,
+  getAioneModelAppContext,
   getAioneExternalRunDetails,
   type AioneExternalType,
+  type AioneFlyteExternalType,
   type FlyteRunIdentifier,
 } from "@/server/aione/external-api";
 import { statusError } from "@/server/http/response";
+import {
+  escapePrometheusLabelValue,
+  queryHawkRange,
+  type HawkPrometheusMatrixData,
+} from "@/server/hawk/client";
 import {
   getHawkRunMetricSeries,
   type HawkRawMetricSeries,
@@ -57,8 +65,10 @@ type HawkRunMetricSeriesForMonitor = Pick<
 
 export type AioneMonitorDependencies = {
   nowSeconds?: () => number;
+  getAioneModelAppContext?: typeof getAioneModelAppContext;
+  queryHawkRange?: typeof queryHawkRange;
   getAioneExternalRunDetails?: (
-    type: AioneExternalType,
+    type: AioneFlyteExternalType,
     sourceId: string,
   ) => Promise<AioneRunDetailsForMonitor>;
   getHawkRunMetricSeries?: (
@@ -90,6 +100,9 @@ export async function getAioneExternalMonitor(
   query: AioneMonitorQuery,
   dependencies: AioneMonitorDependencies = {},
 ): Promise<AioneMonitorPoint[]> {
+  if (type === "model") {
+    return getAioneModelMonitor(sourceId, query, dependencies);
+  }
   const resolveRunDetails: NonNullable<
     AioneMonitorDependencies["getAioneExternalRunDetails"]
   > = dependencies.getAioneExternalRunDetails ?? getAioneExternalRunDetails;
@@ -131,6 +144,108 @@ export async function getAioneExternalMonitor(
   );
 
   return buildMonitorPoints(result, query.modes, resourceSpec);
+}
+
+async function getAioneModelMonitor(
+  sourceId: string,
+  query: AioneMonitorQuery,
+  dependencies: AioneMonitorDependencies,
+) {
+  const resolveModelContext =
+    dependencies.getAioneModelAppContext ?? getAioneModelAppContext;
+  const queryRange = dependencies.queryHawkRange ?? queryHawkRange;
+  const context = await resolveModelContext(sourceId);
+  const containerIdRegex = escapePrometheusLabelValue(
+    buildAioneModelContainerIdRegex(context),
+  );
+  const step = resolveMonitorStepSeconds(query.periodSeconds);
+  const end =
+    Math.floor((dependencies.nowSeconds?.() ?? Date.now() / 1000) / step) *
+    step;
+  const range = { start: end - query.periodSeconds, end, step };
+  const rows = new Map<number, AioneMonitorPoint>();
+
+  await Promise.all(
+    query.modes.map(async (mode) => {
+      if (mode === "cpu") {
+        addPercentageMatrix(
+          rows,
+          "cpu",
+          await queryRange({
+            query: `100 * sum(rate(container_resources_cpu_usage_seconds_total{container_id=~"${containerIdRegex}"}[2m])) / sum(container_resources_cpu_limit_cores{container_id=~"${containerIdRegex}"})`,
+            ...range,
+          }),
+        );
+        return;
+      }
+      if (mode === "memory") {
+        addPercentageMatrix(
+          rows,
+          "memory",
+          await queryRange({
+            query: `100 * sum(container_resources_memory_rss_bytes{container_id=~"${containerIdRegex}"}) / sum(container_resources_memory_limit_bytes{container_id=~"${containerIdRegex}"})`,
+            ...range,
+          }),
+        );
+        return;
+      }
+      const [gpu, vram] = await Promise.all([
+        queryRange({
+          query: `avg by(gpu_uuid) (container_resources_gpu_usage_percent{container_id=~"${containerIdRegex}"})`,
+          ...range,
+        }),
+        queryRange({
+          query: `avg by(gpu_uuid) (container_resources_gpu_memory_usage_percent{container_id=~"${containerIdRegex}"})`,
+          ...range,
+        }),
+      ]);
+      addGpuMatrix(rows, gpu, "gpu");
+      addGpuMatrix(rows, vram, "vram");
+    }),
+  );
+
+  return Array.from(rows.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, row]) => row);
+}
+
+function addPercentageMatrix(
+  rows: Map<number, AioneMonitorPoint>,
+  field: "cpu" | "memory",
+  matrix: HawkPrometheusMatrixData,
+) {
+  for (const series of matrix.result ?? []) {
+    for (const [rawTimestamp, rawValue] of series.values ?? []) {
+      const timestamp = Number(rawTimestamp);
+      const value = Number(rawValue);
+      if (!Number.isFinite(timestamp) || !Number.isFinite(value)) {
+        continue;
+      }
+      getMonitorRow(rows, timestamp)[field] = roundPercent(value);
+    }
+  }
+}
+
+function addGpuMatrix(
+  rows: Map<number, AioneMonitorPoint>,
+  matrix: HawkPrometheusMatrixData,
+  field: "gpu" | "vram",
+) {
+  for (const series of matrix.result ?? []) {
+    const gpuUuid = series.metric?.gpu_uuid?.trim();
+    if (!gpuUuid) {
+      continue;
+    }
+    for (const [rawTimestamp, rawValue] of series.values ?? []) {
+      const timestamp = Number(rawTimestamp);
+      const value = Number(rawValue);
+      if (!Number.isFinite(timestamp) || !Number.isFinite(value)) {
+        continue;
+      }
+      getGpuMonitorValue(getMonitorRow(rows, timestamp), gpuUuid)[field] =
+        roundPercent(value);
+    }
+  }
 }
 
 function parseMonitorModes(searchParams: URLSearchParams) {
