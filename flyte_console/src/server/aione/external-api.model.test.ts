@@ -33,6 +33,26 @@ describe("AIONE external model identifiers", () => {
         namespace: "flyte.prod",
         serviceName: "qwen+app",
       }),
-    ).toBe("^/k8s/flyte\\.prod/qwen\\+app-[^/-]+-[^/-]+/vllm$");
+    ).toBe("^/k8s/flyte\\.prod/qwen\\+app-[^/-]+(-[^/-]+)?/vllm$");
+  });
+
+  it("matches both standard and truncated Kubernetes Pod suffixes", () => {
+    const containerPattern = new RegExp(
+      buildAioneModelContainerIdRegex({
+        namespace: "flyte",
+        serviceName: "mod-a3ch31cd996ij1y24lb8p3e7j7-aione-development",
+      }),
+    );
+
+    expect(
+      containerPattern.test(
+        "/k8s/flyte/mod-a3ch31cd996ij1y24lb8p3e7j7-aione-development-75c977664l-xj52/vllm",
+      ),
+    ).toBe(true);
+    expect(
+      containerPattern.test(
+        "/k8s/flyte/mod-a3ch31cd996ij1y24lb8p3e7j7-aione-development-75c977664lxj52/vllm",
+      ),
+    ).toBe(true);
   });
 });

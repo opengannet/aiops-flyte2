@@ -404,7 +404,9 @@ export function buildAioneModelContainerIdRegex({
   namespace,
   serviceName,
 }: Pick<AioneModelAppContext, "namespace" | "serviceName">) {
-  return `^/k8s/${escapeRegExp(namespace)}/${escapeRegExp(serviceName)}-[^/-]+-[^/-]+/vllm$`;
+  // Kubernetes can truncate a long ReplicaSet-generated Pod name so that the
+  // ReplicaSet hash and Pod suffix are concatenated into one final segment.
+  return `^/k8s/${escapeRegExp(namespace)}/${escapeRegExp(serviceName)}-[^/-]+(-[^/-]+)?/vllm$`;
 }
 
 export function normalizeExternalModelAppName(sourceModelId: string) {

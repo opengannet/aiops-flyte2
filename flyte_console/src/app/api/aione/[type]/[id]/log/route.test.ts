@@ -290,7 +290,7 @@ describe("aione external typed log route", () => {
     expect(response.status).toBe(200);
     expect(getHawkContainerLogsMock).toHaveBeenCalledWith({
       containerIdRegex:
-        "^/k8s/flyte/qwen-app-aione-development-[^/-]+-[^/-]+/vllm$",
+        "^/k8s/flyte/qwen-app-aione-development-[^/-]+(-[^/-]+)?/vllm$",
       start: 1710000000,
       end: expect.any(Number),
       limit: 10000,

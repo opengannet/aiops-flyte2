@@ -93,7 +93,7 @@ describe("AIONE monitor service", () => {
 
     const queries = queryHawkRange.mock.calls.map(([input]) => input.query);
     const escapedRegex =
-      "^/k8s/flyte\\\\.prod/qwen\\\\.app-aione-development-[^/-]+-[^/-]+/vllm$";
+      "^/k8s/flyte\\\\.prod/qwen\\\\.app-aione-development-[^/-]+(-[^/-]+)?/vllm$";
     expect(queries).toEqual(
       expect.arrayContaining([
         `100 * sum(rate(container_resources_cpu_usage_seconds_total{container_id=~"${escapedRegex}"}[2m])) / sum(container_resources_cpu_limit_cores{container_id=~"${escapedRegex}"})`,
