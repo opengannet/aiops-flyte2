@@ -1,0 +1,15 @@
+/*
+ * Flyte's global Tailwind bundle styles every Headless UI portal as a
+ * full-screen React dialog container. Scalar also uses Headless UI (Vue),
+ * where this element is only an unstyled portal mount. Reset the inherited
+ * dialog layout so an empty Scalar portal cannot cover the reference page and
+ * intercept every pointer event.
+ */
+#headlessui-portal-root.scalar-app > [data-headlessui-portal] {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  display: block;
+  align-items: normal;
+  justify-content: normal;
+}
