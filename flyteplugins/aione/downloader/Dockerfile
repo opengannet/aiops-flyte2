@@ -1,4 +1,4 @@
-FROM docker.fzyun.io/python:3.12-slim
+FROM docker.fzyun.io/library/python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

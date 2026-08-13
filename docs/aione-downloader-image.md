@@ -11,6 +11,9 @@ aione-downloader:latest
 模型 Pod 的初始化容器使用 `IfNotPresent`：节点已经存在该镜像时直接复用，不会在每次模型启动时
 访问外部镜像仓库。
 
+基础镜像使用内部仓库的标准 library 路径 `docker.fzyun.io/library/python:3.12-slim`，不要省略
+`library/`；省略后可能命中只有索引、缺少实际 manifest 的旧仓库路径，导致 downloader 构建失败。
+
 因此 downloader 的更新方式是重新执行正式部署脚本，而不是为每个 Git 提交生成新标签。部署后可用
 以下命令确认镜像和运行时配置一致：
 
