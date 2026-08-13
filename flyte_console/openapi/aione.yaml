@@ -22,7 +22,7 @@ tags:
   - name: Storage
     description: Inspect cloud-storage PVC capacity.
   - name: Models
-    description: Obtain model API keys.
+    description: Manage scoped VLLM applications and resolve the configured Flyte context.
 paths:
   /api/aione/{type}/run:
     $ref: ./paths/run.yaml
@@ -44,6 +44,8 @@ paths:
     $ref: ./paths/pvc-size.yaml
   /api/aione/apikey/{modelCode}:
     $ref: ./paths/apikey.yaml
+  /api/aione/context:
+    $ref: ./paths/context.yaml
   /api/aione/models:
     $ref: ./paths/models.yaml
   /api/aione/model/{id}:

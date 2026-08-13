@@ -6,14 +6,13 @@ import { DescriptionListWrapper } from "@/components/DescriptionListWrapper";
 import { ExternalLinkUrl } from "@/components/ExternalLinkUrl";
 import { TabSection } from "@/components/TabSection";
 import { Button } from "@/components/Button";
-import { CopyButton } from "@/components/CopyButton";
 import {
   App,
   Status_DeploymentStatus,
 } from "@/gen/flyteidl2/app/app_definition_pb";
 import { getStatus } from "@/lib/appUtils";
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import stringify from "safe-stable-stringify";
 import {
   extractAppResourceSummary,
@@ -24,9 +23,6 @@ import { buildCloudStorageDetailHref } from "../CloudStorage/utils";
 
 export const AppSpecTab = ({ app }: { app: App | undefined }) => {
   const params = useParams<{ domain: string; project: string }>();
-  const [apiKey, setApiKey] = useState("");
-  const [apiKeyError, setApiKeyError] = useState("");
-  const [isCreatingApiKey, setIsCreatingApiKey] = useState(false);
   const description = app?.spec?.profile?.shortDescription;
   const specJson = stringify(app?.spec);
   const modelMetadata = useMemo(() => extractModelMetadata(app), [app]);
@@ -106,30 +102,12 @@ export const AppSpecTab = ({ app }: { app: App | undefined }) => {
     }
   }, [app?.spec]);
 
-  const createApiKey = async () => {
-    const modelCode = modelMetadata.code;
-    if (!modelCode) return;
-    setApiKey("");
-    setApiKeyError("");
-    setIsCreatingApiKey(true);
-    try {
-      const modelPath = modelCode.split("/").map(encodeURIComponent).join("/");
-      const response = await fetch(`/api/aione/apikey/${modelPath}`, {
-        method: "POST",
-      });
-      const body = (await response.json()) as {
-        data?: string;
-        message?: string;
-      };
-      if (!response.ok) {
-        throw new Error(body.message || `HTTP ${response.status}`);
-      }
-      setApiKey(body.data || "");
-    } catch (error) {
-      setApiKeyError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsCreatingApiKey(false);
-    }
+  const manageApiKeys = () => {
+    const deploymentId = app?.metadata?.id?.name?.trim();
+    if (!deploymentId) return;
+    window.location.assign(
+      `/api/publication-link/${encodeURIComponent(deploymentId)}`,
+    );
   };
 
   return (
@@ -163,21 +141,12 @@ export const AppSpecTab = ({ app }: { app: App | undefined }) => {
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 outline
-                disabled={!modelMetadata.code || isCreatingApiKey}
-                onClick={createApiKey}
+                disabled={!app?.metadata?.id?.name}
+                onClick={manageApiKeys}
                 type="button"
               >
-                {isCreatingApiKey ? "Creating API key" : "Create API key"}
+                Manage publication and API keys
               </Button>
-              {apiKey && (
-                <div className="flex min-w-0 items-center gap-2 text-sm">
-                  <span className="truncate font-mono">{apiKey}</span>
-                  <CopyButton value={apiKey} />
-                </div>
-              )}
-              {apiKeyError && (
-                <span className="text-sm text-red-500">{apiKeyError}</span>
-              )}
             </div>
           </div>
         </TabSection>

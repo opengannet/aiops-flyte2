@@ -140,6 +140,18 @@ export type AioneModelScope = {
   project: string;
   domain: string;
 };
+
+export function getAioneExternalContext(
+  projectValue: string,
+  domainValue: string,
+) {
+  return {
+    org:
+      process.env.EXTERNAL_API_FLYTE_ORG?.trim() || DEFAULT_AIONE_INTERNAL_ORG,
+    project: requiredScopeField(projectValue, "project"),
+    domain: requiredScopeField(domainValue, "domain"),
+  };
+}
 type DevelopmentInstanceCloudStorageMounts =
   DevelopmentInstanceFormValues["cloudStorageMounts"];
 
@@ -1937,7 +1949,7 @@ function buildExternalModelAppValues(payload: unknown) {
   const project = requiredStringField(object, "project");
   const domain = requiredStringField(object, "domain");
   const id = requiredStringField(object, "id");
-  const code = stringField(object, "code") || id;
+  const code = validateExternalModelCode(stringField(object, "code") || id);
   const name = stringField(object, "name") || code || id;
   const defaultStorageClass =
     process.env.EXTERNAL_API_DEFAULT_STORAGE_CLASS?.trim() ||
@@ -2002,6 +2014,23 @@ function buildExternalModelAppValues(payload: unknown) {
       }),
     }),
   };
+}
+
+export function validateExternalModelCode(value: string) {
+  const normalized = value.trim();
+  if (normalized.length === 0 || Buffer.byteLength(normalized, "utf8") > 255) {
+    throw statusError("model code must contain 1 to 255 bytes", 400);
+  }
+  for (const character of normalized) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (character === "," || codePoint < 0x20 || codePoint === 0x7f) {
+      throw statusError(
+        "model code must not contain commas or control characters",
+        400,
+      );
+    }
+  }
+  return normalized;
 }
 
 function parseExternalModelCodeSources(value: unknown) {

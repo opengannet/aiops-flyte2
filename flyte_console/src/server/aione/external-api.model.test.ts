@@ -6,6 +6,7 @@ import {
   externalModelIdentifier,
   normalizeExternalModelAppName,
   selectAioneModelApps,
+  validateExternalModelCode,
 } from "@/server/aione/external-api";
 
 describe("AIONE external model identifiers", () => {
@@ -57,6 +58,15 @@ describe("AIONE external model identifiers", () => {
         "/k8s/flyte/mod-a3ch31cd996ij1y24lb8p3e7j7-aione-development-75c977664lxj52/vllm",
       ),
     ).toBe(true);
+  });
+});
+
+describe("AIONE external model codes", () => {
+  it("normalizes a valid code and rejects values that cannot be published", () => {
+    expect(validateExternalModelCode(" qwen/model ")).toBe("qwen/model");
+    for (const value of ["", "a,b", "line\nbreak", "a".repeat(256)]) {
+      expect(() => validateExternalModelCode(value)).toThrow();
+    }
   });
 });
 

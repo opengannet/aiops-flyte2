@@ -6,5 +6,5 @@ export const metadata: Metadata = {
 };
 
 export default function Page() {
-  return <ApiKeysPage />;
+  return <ApiKeysPage publicURL={process.env.AIONE_PUBLIC_URL ?? ""} />;
 }

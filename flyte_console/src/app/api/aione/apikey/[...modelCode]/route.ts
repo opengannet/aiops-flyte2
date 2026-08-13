@@ -4,8 +4,7 @@
 
 import { NextRequest } from "next/server";
 import { authenticateAioneRequest } from "@/server/aione/helpers";
-import { createLlmApiKey } from "@/server/llm/token";
-import { errorEnvelope, okEnvelope, statusError } from "@/server/http/response";
+import { errorEnvelope, statusError } from "@/server/http/response";
 
 export const runtime = "nodejs";
 
@@ -19,12 +18,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
   ) {
     return errorEnvelope(statusError("unauthorized", 401));
   }
-  try {
-    const { modelCode } = await context.params;
-    const model = (modelCode ?? []).join("/");
-    const result = await createLlmApiKey({ model });
-    return okEnvelope(result.key);
-  } catch (error) {
-    return errorEnvelope(error);
-  }
+  const { modelCode } = await context.params;
+  const model = (modelCode ?? []).join("/").trim();
+  const publicURL =
+    process.env.AIONE_PUBLIC_URL?.trim().replace(/\/$/, "") ?? "";
+  const migrationURL = publicURL
+    ? `${publicURL}/models/deployments${model ? `?model=${encodeURIComponent(model)}` : ""}`
+    : "/models/deployments";
+  return errorEnvelope(
+    statusError(`model API key creation moved to ${migrationURL}`, 410),
+  );
 }
