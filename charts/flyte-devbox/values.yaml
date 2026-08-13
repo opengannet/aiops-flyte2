@@ -114,7 +114,7 @@ flyte-binary:
       pullPolicy: Never
     extraEnvVars:
       - name: AIONE_DOWNLOADER_IMAGE
-        value: aione-downloader:sandbox
+        value: aione-downloader:latest
     startupProbe:
       httpGet:
         path: /healthz

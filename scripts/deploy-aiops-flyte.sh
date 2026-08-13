@@ -249,7 +249,7 @@ if [[ -n "${PROXY_URL:-}" ]]; then
   )
 fi
 "${NERDCTL[@]}" build "${build_proxy_args[@]}" -t "${IMAGE_REPOSITORY}:${IMAGE_TAG}" -f Dockerfile .
-"${NERDCTL[@]}" build "${build_proxy_args[@]}" -t "${DOWNLOADER_IMAGE_REPOSITORY}:${IMAGE_TAG}" -f flyteplugins/aione/downloader/Dockerfile flyteplugins/aione/downloader
+"${NERDCTL[@]}" build "${build_proxy_args[@]}" -t "${DOWNLOADER_IMAGE_REPOSITORY}:latest" -f flyteplugins/aione/downloader/Dockerfile flyteplugins/aione/downloader
 
 prune_old_release_images() {
   if [[ "$IMAGE_TAG" != "$IMAGE_TAG_PREFIX"* ]]; then
@@ -425,7 +425,7 @@ helm upgrade --install "$RELEASE" charts/flyte-devbox \
   --set flyte-binary.deployment.image.tag="$IMAGE_TAG" \
   --set flyte-binary.deployment.image.pullPolicy=Never \
   --set flyte-binary.deployment.extraEnvVars[0].name=AIONE_DOWNLOADER_IMAGE \
-  --set flyte-binary.deployment.extraEnvVars[0].value="${DOWNLOADER_IMAGE_REPOSITORY}:${IMAGE_TAG}" \
+  --set flyte-binary.deployment.extraEnvVars[0].value="${DOWNLOADER_IMAGE_REPOSITORY}:latest" \
   --set flyte-binary.deployment.waitForDB.image.repository=postgres \
   --set-string flyte-binary.deployment.waitForDB.image.tag=17 \
   --set flyte-binary.deployment.waitForDB.image.pullPolicy=Never \
