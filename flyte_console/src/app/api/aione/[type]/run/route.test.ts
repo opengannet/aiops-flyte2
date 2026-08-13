@@ -720,6 +720,7 @@ describe("aione external typed run route", () => {
           code: "qwen-local",
           image: "vllm",
           param: "--served-model-name\nqwen-local",
+          modelCacheSize: "80Gi",
           codes: [
             expect.objectContaining({
               id: "https://git.example.com/team/qwen.git",
@@ -742,10 +743,21 @@ describe("aione external typed run route", () => {
     expect(body).toEqual({
       status: 200,
       data: {
-        name: "qwen-vllm",
+        id: "qwen-vllm",
+        org: "aione",
+        project: "aione",
+        domain: "development",
+        name: "Qwen VLLM",
         code: "qwen-local",
-        profile: "VLLM",
+        type: "VLLM",
+        image: "vllm",
+        deploymentStatus: 0,
+        substate: 0,
+        message: "",
+        currentReplicas: 0,
         url: "http://qwen-vllm-aione-development.example.com",
+        createdAt: "",
+        updatedAt: "",
       },
     });
   });
@@ -773,7 +785,7 @@ describe("aione external typed run route", () => {
     expect(createModelAppMock).not.toHaveBeenCalled();
   });
 
-  it("selects the model runtime from profile instead of image", async () => {
+  it("uses a custom image while keeping the VLLM profile", async () => {
     const { POST } = await import("./route");
     const response = await POST(
       new NextRequest("http://localhost/v2/api/aione/model/run", {
@@ -781,7 +793,7 @@ describe("aione external typed run route", () => {
         headers: { authorization: "Bearer external-key" },
         body: JSON.stringify({
           ...modelPayload,
-          image: "registry.example.com/ignored:latest",
+          image: "registry.example.com/vllm:latest",
         }),
       }),
       { params: Promise.resolve({ type: "model" }) },
@@ -790,7 +802,9 @@ describe("aione external typed run route", () => {
     expect(response.status).toBe(200);
     expect(createModelAppMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: expect.objectContaining({ image: "vllm" }),
+        model: expect.objectContaining({
+          image: "registry.example.com/vllm:latest",
+        }),
       }),
     );
   });

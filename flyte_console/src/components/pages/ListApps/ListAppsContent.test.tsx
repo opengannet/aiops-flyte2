@@ -46,7 +46,7 @@ describe("ListAppsContent", () => {
   it("shows the Apps empty state and onboarding help in Simplified Chinese", () => {
     render(<ListAppsContent listAppsQuery={query()} searchQuery="" />);
 
-    expect(screen.getByText("暂无应用")).toBeInTheDocument();
+    expect(screen.getByText("暂无模型部署")).toBeInTheDocument();
     expect(
       screen.getByText(
         "应用让您能够构建和运行自己的 Web 应用，包括模型端点、AI 推理组件、交互式仪表板、连接器等。",
@@ -75,9 +75,9 @@ describe("ListAppsContent", () => {
   it("shows the Apps search-empty state in Simplified Chinese", () => {
     render(<ListAppsContent listAppsQuery={query()} searchQuery="qwen" />);
 
-    expect(screen.getByText("未找到应用")).toBeInTheDocument();
+    expect(screen.getByText("未找到模型部署")).toBeInTheDocument();
     expect(screen.getByText("qwen").parentElement).toHaveTextContent(
-      "未找到匹配 qwen 的应用",
+      "未找到匹配 qwen 的模型部署",
     );
   });
 
@@ -90,6 +90,6 @@ describe("ListAppsContent", () => {
     );
 
     expect(screen.getByText("加载失败")).toBeInTheDocument();
-    expect(screen.getByText("加载应用时遇到问题")).toBeInTheDocument();
+    expect(screen.getByText("加载模型部署时遇到问题")).toBeInTheDocument();
   });
 });

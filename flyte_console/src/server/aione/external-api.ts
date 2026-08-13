@@ -70,10 +70,14 @@ import {
 import { AppService } from "@/gen/flyteidl2/app/app_service_pb";
 import {
   CreateModelAppRequestSchema,
+  DeleteRequestSchema as DeleteAppRequestSchema,
+  GetModelAppConfigRequestSchema,
   GetRequestSchema as GetAppRequestSchema,
+  ListRequestSchema as ListAppsRequestSchema,
   ModelAppInputSchema,
   ModelCodeSourceSchema,
   ModelResourceDefinitionSchema,
+  UpdateModelAppRequestSchema,
   UpdateRequestSchema as UpdateAppRequestSchema,
 } from "@/gen/flyteidl2/app/app_payload_pb";
 import {
@@ -131,6 +135,23 @@ export type AioneModelAppContext = {
   serviceName: string;
   createdAtSeconds?: number;
 };
+export type AioneModelScope = {
+  id: string;
+  project: string;
+  domain: string;
+};
+
+export function getAioneExternalContext(
+  projectValue: string,
+  domainValue: string,
+) {
+  return {
+    org:
+      process.env.EXTERNAL_API_FLYTE_ORG?.trim() || DEFAULT_AIONE_INTERNAL_ORG,
+    project: requiredScopeField(projectValue, "project"),
+    domain: requiredScopeField(domainValue, "domain"),
+  };
+}
 type DevelopmentInstanceCloudStorageMounts =
   DevelopmentInstanceFormValues["cloudStorageMounts"];
 
@@ -149,11 +170,6 @@ const NODE_PORT_RETRIES = 3;
 const EXTERNAL_HAWK_LOG_LIMIT = 10000;
 const AUTO_REGISTERED_CLOUD_STORAGE_DESCRIPTION =
   "Auto-registered from external API datastore";
-// External model requests select a runtime profile instead of supplying an
-// arbitrary image. The backend resolves the VLLM alias to its configured image.
-const EXTERNAL_MODEL_PROFILE_IMAGES = {
-  VLLM: "vllm",
-} as const;
 const TASK_DELETABLE_KINDS = [
   {
     apiPath: "/apis/batch/v1",
@@ -224,10 +240,13 @@ export async function createAioneExternalRun(
 export async function stopAioneExternalRun(
   type: AioneExternalType,
   sourceId: string,
+  modelScope?: Pick<AioneModelScope, "project" | "domain">,
 ) {
   switch (type) {
     case "model":
-      return stopModelApp(sourceId);
+      return modelScope
+        ? stopAioneModelApp({ id: sourceId, ...modelScope })
+        : stopModelApp(sourceId);
     case "task":
       return stopTrainingTaskRun(sourceId);
     case "instance":
@@ -252,9 +271,10 @@ export async function clearAioneExternalResources(
 export async function getAioneExternalStatus(
   type: AioneExternalType,
   sourceId: string,
+  modelScope?: Pick<AioneModelScope, "project" | "domain">,
 ) {
   if (type === "model") {
-    return getModelAppStatus(sourceId);
+    return getModelAppStatus(sourceId, modelScope);
   }
   const runId =
     type === "task"
@@ -287,9 +307,21 @@ export async function getAioneExternalLogs(
   type: AioneExternalType,
   sourceId: string,
   pagination: { page: number; size: number },
+  modelScope?: Pick<AioneModelScope, "project" | "domain">,
 ) {
   if (type === "model") {
-    return getModelAppLogs(sourceId, pagination);
+    const result = await getModelAppLogs(sourceId, pagination, modelScope);
+    return modelScope
+      ? {
+          items: result.logs.map((line) => ({
+            timestamp: line.time,
+            message: line.log,
+          })),
+          total: result.total,
+          page: pagination.page,
+          size: pagination.size,
+        }
+      : result;
   }
   const runId =
     type === "task"
@@ -327,8 +359,40 @@ export async function getAioneExternalLogs(
 
 export async function getAioneModelAppContext(
   sourceModelId: string,
+  scope?: Pick<AioneModelScope, "project" | "domain">,
 ): Promise<AioneModelAppContext> {
   const appName = normalizeExternalModelAppName(sourceModelId);
+  const client = createAppClient();
+  const internalOrg =
+    process.env.EXTERNAL_API_FLYTE_ORG?.trim() || DEFAULT_AIONE_INTERNAL_ORG;
+  if (scope) {
+    const project = requiredScopeField(scope.project, "project");
+    const domain = requiredScopeField(scope.domain, "domain");
+    const response = await client.get(
+      create(GetAppRequestSchema, {
+        identifier: {
+          case: "appId",
+          value: create(IdentifierSchema, {
+            org: internalOrg,
+            project,
+            domain,
+            name: appName,
+          }),
+        },
+      }),
+    );
+    const app = response.app;
+    if (!app || app.spec?.profile?.type?.trim().toUpperCase() !== "VLLM") {
+      throw statusError("model application not found", 404);
+    }
+    return {
+      app,
+      namespace: AIONE_RUNTIME_NAMESPACE,
+      serviceName: appName,
+      createdAtSeconds: protoTimestampSeconds(app.status?.createdAt),
+    };
+  }
+
   const { apiOrigin, namespace, token, ca } = await getKubernetesClientConfig(
     AIONE_RUNTIME_NAMESPACE,
   );
@@ -344,9 +408,6 @@ export async function getAioneModelAppContext(
       `flyte.org/app-name=${appName}`,
     ].join(","),
   });
-  const client = createAppClient();
-  const internalOrg =
-    process.env.EXTERNAL_API_FLYTE_ORG?.trim() || DEFAULT_AIONE_INTERNAL_ORG;
   const matches: AioneModelAppContext[] = [];
 
   for (const service of services.items ?? []) {
@@ -438,8 +499,226 @@ export function normalizeExternalModelAppName(sourceModelId: string) {
   return `${prefix}-${suffix}`;
 }
 
-async function getModelAppStatus(sourceModelId: string) {
-  const { app } = await getAioneModelAppContext(sourceModelId);
+export async function listAioneModelApps({
+  project,
+  domain,
+  page = 1,
+  pageSize = 20,
+  keyword = "",
+  status = "",
+}: {
+  project: string;
+  domain: string;
+  page?: number;
+  pageSize?: number;
+  keyword?: string;
+  status?: string;
+}) {
+  const internalOrg = externalModelOrg();
+  const normalizedProject = requiredScopeField(project, "project");
+  const normalizedDomain = requiredScopeField(domain, "domain");
+  const normalizedPage = positivePage(page, "p");
+  const normalizedPageSize = positivePage(pageSize, "page_size", 100);
+  const response = await createAppClient().list(
+    create(ListAppsRequestSchema, {
+      request: { limit: 0 },
+      filterBy: {
+        case: "project",
+        value: create(ProjectIdentifierSchema, {
+          organization: internalOrg,
+          name: normalizedProject,
+          domain: normalizedDomain,
+        }),
+      },
+      disableIdentityEnrichment: true,
+    }),
+  );
+  return selectAioneModelApps(response.apps, {
+    page: normalizedPage,
+    pageSize: normalizedPageSize,
+    keyword,
+    status,
+  });
+}
+
+export function selectAioneModelApps(
+  apps: App[],
+  {
+    page,
+    pageSize,
+    keyword = "",
+    status = "",
+  }: {
+    page: number;
+    pageSize: number;
+    keyword?: string;
+    status?: string;
+  },
+) {
+  const normalizedPage = positivePage(page, "p");
+  const normalizedPageSize = positivePage(pageSize, "page_size", 100);
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  const normalizedStatus = normalizeDeploymentStatusFilter(status);
+  const filtered = apps
+    .filter((app) => app.spec?.profile?.type?.trim().toUpperCase() === "VLLM")
+    .filter((app) => {
+      if (!normalizedKeyword) return true;
+      const metadata = externalModelMetadata(app);
+      return [app.metadata?.id?.name, metadata.code, metadata.displayName].some(
+        (value) => value?.toLowerCase().includes(normalizedKeyword),
+      );
+    })
+    .filter((app) => {
+      if (normalizedStatus === undefined) return true;
+      return latestDeploymentStatus(app) === normalizedStatus;
+    })
+    .sort(
+      (left, right) =>
+        (protoTimestampSeconds(right.status?.createdAt) ?? 0) -
+        (protoTimestampSeconds(left.status?.createdAt) ?? 0),
+    );
+  const total = filtered.length;
+  const offset = (normalizedPage - 1) * normalizedPageSize;
+  return {
+    items: filtered
+      .slice(offset, offset + normalizedPageSize)
+      .map(externalModelSummary),
+    total,
+    page: normalizedPage,
+    pageSize: normalizedPageSize,
+  };
+}
+
+export async function getAioneModelApp(scope: AioneModelScope) {
+  const appId = externalModelIdentifier(scope);
+  const client = createAppClient();
+  const [appResponse, configResponse] = await Promise.all([
+    client.get(
+      create(GetAppRequestSchema, {
+        identifier: { case: "appId", value: appId },
+      }),
+    ),
+    client.getModelAppConfig(create(GetModelAppConfigRequestSchema, { appId })),
+  ]);
+  const app = appResponse.app;
+  if (!app || app.spec?.profile?.type?.trim().toUpperCase() !== "VLLM") {
+    throw statusError("model application not found", 404);
+  }
+  return {
+    ...externalModelSummary(app),
+    desiredState: app.spec.desiredState,
+    config: configResponse.model
+      ? {
+          name: configResponse.model.name,
+          code: configResponse.model.code,
+          image: configResponse.model.image,
+          param: configResponse.model.param,
+          codes: configResponse.model.codes.map((source) => ({
+            id: source.id,
+            branch: source.branch,
+            path: source.path,
+            tokenConfigured: source.tokenConfigured,
+          })),
+          resourceDefinition: configResponse.model.resourceDefinition
+            ? {
+                cpu: configResponse.model.resourceDefinition.cpu,
+                memory: configResponse.model.resourceDefinition.memory,
+                gpu: configResponse.model.resourceDefinition.gpu,
+                gpuResourceKey: configResponse.model.resourceDefinition.gpuKey,
+                gpuNodeLabelKey:
+                  configResponse.model.resourceDefinition.gpuNodeLabelKey,
+              }
+            : undefined,
+          cloudStorageMounts: configResponse.model.cloudStorageMounts,
+          modelCachePvc: configResponse.model.modelCachePvc,
+        }
+      : undefined,
+  };
+}
+
+export async function updateAioneModelApp(
+  scope: AioneModelScope,
+  payload: unknown,
+) {
+  const object = getPayloadObject(payload);
+  const resources = getPayloadObject(object.resourceDefinition);
+  const modelCacheSize = modelCacheSizeField(object);
+  assertPositiveGi(modelCacheSize);
+  const response = await createAppClient().updateModelApp(
+    create(UpdateModelAppRequestSchema, {
+      appId: externalModelIdentifier(scope),
+      name: stringField(object, "name"),
+      image: stringField(object, "image") || "vllm",
+      param: stringField(object, "param"),
+      resourceDefinition: create(ModelResourceDefinitionSchema, {
+        cpu: stringField(resources, "cpu"),
+        memory: stringField(resources, "memory"),
+        gpu: nonNegativeIntegerField(
+          resources.gpu,
+          0,
+          "resourceDefinition.gpu",
+        ),
+        gpuKey:
+          stringField(resources, "gpu_resource_key") ||
+          stringField(resources, "gpuResourceKey") ||
+          "nvidia.com/gpu",
+        gpuNodeLabelKey:
+          stringField(resources, "gpu_node_label_key") ||
+          stringField(resources, "gpuNodeLabelKey"),
+      }),
+      modelCacheSize,
+      reason: "Updated from AIONE external model API",
+    }),
+  );
+  return response.app ? externalModelSummary(response.app) : {};
+}
+
+export async function startAioneModelApp(scope: AioneModelScope) {
+  return setAioneModelDesiredState(
+    scope,
+    Spec_DesiredState.ACTIVE,
+    "Started from AIONE external model API",
+  );
+}
+
+export async function stopAioneModelApp(scope: AioneModelScope) {
+  return setAioneModelDesiredState(
+    scope,
+    Spec_DesiredState.STOPPED,
+    "Stopped from AIONE external model API",
+  );
+}
+
+export async function deleteAioneModelApp(scope: AioneModelScope) {
+  await createAppClient().delete(
+    create(DeleteAppRequestSchema, {
+      appId: externalModelIdentifier(scope),
+    }),
+  );
+  return {};
+}
+
+export async function getScopedAioneModelLogs(
+  scope: AioneModelScope,
+  pagination: { page: number; size: number },
+) {
+  const result = await getModelAppLogs(scope.id, pagination, scope);
+  return {
+    items: result.logs.map((line) => ({
+      timestamp: line.time,
+      message: line.log,
+    })),
+    total: result.total,
+    page: pagination.page,
+    size: pagination.size,
+  };
+}
+
+async function getModelAppStatus(
+  sourceModelId: string,
+  scope?: Pick<AioneModelScope, "project" | "domain">,
+) {
+  const { app } = await getAioneModelAppContext(sourceModelId, scope);
   const condition = app.status?.conditions?.at(-1);
   const ingress = app.status?.ingress;
   return {
@@ -471,8 +750,9 @@ async function stopModelApp(sourceModelId: string) {
 async function getModelAppLogs(
   sourceModelId: string,
   pagination: { page: number; size: number },
+  scope?: Pick<AioneModelScope, "project" | "domain">,
 ) {
-  const context = await getAioneModelAppContext(sourceModelId);
+  const context = await getAioneModelAppContext(sourceModelId, scope);
   const end = Math.floor(Date.now() / 1000);
   const start = context.createdAtSeconds ?? end - 30 * 60;
   try {
@@ -496,6 +776,179 @@ function parseKubernetesTimestampSeconds(value: string | undefined) {
   return Number.isFinite(milliseconds)
     ? Math.floor(milliseconds / 1000)
     : undefined;
+}
+
+function externalModelOrg() {
+  return (
+    process.env.EXTERNAL_API_FLYTE_ORG?.trim() || DEFAULT_AIONE_INTERNAL_ORG
+  );
+}
+
+function requiredScopeField(value: string, field: string) {
+  const normalized = value.trim();
+  if (!normalized) {
+    throw statusError(`${field} is required`, 400);
+  }
+  return normalized;
+}
+
+export function externalModelIdentifier(scope: AioneModelScope) {
+  return create(IdentifierSchema, {
+    org: externalModelOrg(),
+    project: requiredScopeField(scope.project, "project"),
+    domain: requiredScopeField(scope.domain, "domain"),
+    name: normalizeExternalModelAppName(scope.id),
+  });
+}
+
+async function setAioneModelDesiredState(
+  scope: AioneModelScope,
+  desiredState: Spec_DesiredState,
+  reason: string,
+) {
+  const appId = externalModelIdentifier(scope);
+  const response = await createAppClient().get(
+    create(GetAppRequestSchema, {
+      identifier: { case: "appId", value: appId },
+    }),
+  );
+  const app = response.app;
+  if (!app || app.spec?.profile?.type?.trim().toUpperCase() !== "VLLM") {
+    throw statusError("model application not found", 404);
+  }
+  const updated = create(AppSchema, app);
+  if (!updated.spec) {
+    throw statusError("model application spec not found", 502);
+  }
+  updated.spec.desiredState = desiredState;
+  const result = await createAppClient().update(
+    create(UpdateAppRequestSchema, { app: updated, reason }),
+  );
+  return result.app ? externalModelSummary(result.app) : {};
+}
+
+function externalModelSummary(app: App) {
+  const id = app.metadata?.id;
+  const condition = app.status?.conditions?.at(-1);
+  const ingress = app.status?.ingress;
+  const metadata = externalModelMetadata(app);
+  return {
+    id: id?.name ?? "",
+    org: id?.org ?? "",
+    project: id?.project ?? "",
+    domain: id?.domain ?? "",
+    name: metadata.displayName || metadata.code || id?.name || "",
+    code: metadata.code || id?.name || "",
+    type: "VLLM",
+    image: metadata.image || "vllm",
+    deploymentStatus: condition?.deploymentStatus ?? 0,
+    substate: condition?.substate ?? 0,
+    message: condition?.message ?? "",
+    currentReplicas: app.status?.currentReplicas ?? 0,
+    url: ingress?.publicUrl || ingress?.cnameUrl || ingress?.vpcUrl || "",
+    createdAt: protoTimestampIso(app.status?.createdAt),
+    updatedAt: protoTimestampIso(app.status?.lastUpdatedAt),
+  };
+}
+
+function externalModelMetadata(app: App) {
+  const inputs = app.spec?.inputs?.items ?? [];
+  const value = (name: string) => {
+    const input = inputs.find((item) => item.name === name)?.value;
+    return input?.case === "stringValue" ? input.value : "";
+  };
+  return {
+    code: value("code"),
+    displayName: value("name"),
+    image: value("image"),
+  };
+}
+
+function latestDeploymentStatus(app: App) {
+  return app.status?.conditions?.at(-1)?.deploymentStatus ?? 0;
+}
+
+const DEPLOYMENT_STATUS_BY_NAME: Record<string, number> = {
+  UNSPECIFIED: 0,
+  UNASSIGNED: 1,
+  ASSIGNED: 2,
+  PENDING: 3,
+  STOPPED: 4,
+  STARTED: 5,
+  FAILED: 6,
+  ACTIVE: 7,
+  SCALING_UP: 8,
+  SCALING_DOWN: 9,
+  DEPLOYING: 10,
+};
+
+function normalizeDeploymentStatusFilter(value: string) {
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/^DEPLOYMENT_STATUS_/, "");
+  if (!normalized) return undefined;
+  if (/^\d+$/.test(normalized)) {
+    const numeric = Number(normalized);
+    if (Object.values(DEPLOYMENT_STATUS_BY_NAME).includes(numeric)) {
+      return numeric;
+    }
+  }
+  const status = DEPLOYMENT_STATUS_BY_NAME[normalized];
+  if (status === undefined) {
+    throw statusError("status is invalid", 400);
+  }
+  return status;
+}
+
+function positivePage(value: number, field: string, maximum?: number) {
+  if (
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    (maximum && value > maximum)
+  ) {
+    throw statusError(
+      maximum
+        ? `${field} must be an integer between 1 and ${maximum}`
+        : `${field} must be a positive integer`,
+      400,
+    );
+  }
+  return value;
+}
+
+function protoTimestampSeconds(
+  value: { seconds?: bigint | number } | undefined,
+) {
+  if (!value) return undefined;
+  const seconds = Number(value.seconds ?? 0);
+  return Number.isFinite(seconds) ? seconds : undefined;
+}
+
+function protoTimestampIso(
+  value: { seconds?: bigint | number; nanos?: number } | undefined,
+) {
+  const seconds = protoTimestampSeconds(value);
+  if (seconds === undefined) return "";
+  return new Date(
+    seconds * 1000 + (value?.nanos ?? 0) / 1_000_000,
+  ).toISOString();
+}
+
+function modelCacheSizeField(object: Record<string, unknown>) {
+  return (
+    stringField(object, "modelCacheSize") ||
+    stringField(object, "model_cache_size")
+  );
+}
+
+function assertPositiveGi(value: string) {
+  if (!/^[1-9]\d*Gi$/.test(value)) {
+    throw statusError(
+      "modelCacheSize must be a positive integer Gi value",
+      400,
+    );
+  }
 }
 
 function escapeRegExp(value: string) {
@@ -915,13 +1368,10 @@ async function createModelAppRun(payload: unknown) {
       id: model?.id || model?.code || appID.name,
     },
     app: {
-      org: appID.org,
-      project: appID.project,
-      domain: appID.domain,
-      name: appID.name,
+      ...externalModelSummary(app),
+      name: model?.name || appID.name,
       code: model?.code || appID.name,
-      profile: app?.spec?.profile?.type || "VLLM",
-      url: app?.status?.ingress?.publicUrl || "",
+      image: model?.image || "vllm",
     },
   };
 }
@@ -1499,7 +1949,7 @@ function buildExternalModelAppValues(payload: unknown) {
   const project = requiredStringField(object, "project");
   const domain = requiredStringField(object, "domain");
   const id = requiredStringField(object, "id");
-  const code = stringField(object, "code") || id;
+  const code = validateExternalModelCode(stringField(object, "code") || id);
   const name = stringField(object, "name") || code || id;
   const defaultStorageClass =
     process.env.EXTERNAL_API_DEFAULT_STORAGE_CLASS?.trim() ||
@@ -1510,10 +1960,14 @@ function buildExternalModelAppValues(payload: unknown) {
   );
   const modelCacheSize =
     stringField(object, "modelCacheSize") ||
-    stringField(object, "model_cache_size");
-  const image = resolveExternalModelProfileImage(
-    requiredStringField(object, "profile"),
-  );
+    stringField(object, "model_cache_size") ||
+    "80Gi";
+  assertPositiveGi(modelCacheSize);
+  const profile = stringField(object, "profile");
+  if (profile && profile.trim().toUpperCase() !== "VLLM") {
+    throw statusError("profile must be VLLM", 400);
+  }
+  const image = stringField(object, "image") || "vllm";
 
   return {
     sourceOrg,
@@ -1562,16 +2016,21 @@ function buildExternalModelAppValues(payload: unknown) {
   };
 }
 
-function resolveExternalModelProfileImage(profile: string) {
-  const normalizedProfile = profile.trim().toUpperCase();
-  const image =
-    EXTERNAL_MODEL_PROFILE_IMAGES[
-      normalizedProfile as keyof typeof EXTERNAL_MODEL_PROFILE_IMAGES
-    ];
-  if (!image) {
-    throw statusError("profile must be VLLM", 400);
+export function validateExternalModelCode(value: string) {
+  const normalized = value.trim();
+  if (normalized.length === 0 || Buffer.byteLength(normalized, "utf8") > 255) {
+    throw statusError("model code must contain 1 to 255 bytes", 400);
   }
-  return image;
+  for (const character of normalized) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    if (character === "," || codePoint < 0x20 || codePoint === 0x7f) {
+      throw statusError(
+        "model code must not contain commas or control characters",
+        400,
+      );
+    }
+  }
+  return normalized;
 }
 
 function parseExternalModelCodeSources(value: unknown) {

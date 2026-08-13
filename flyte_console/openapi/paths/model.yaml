@@ -1,0 +1,39 @@
+parameters:
+  - $ref: ../aione.yaml#/components/parameters/id
+  - { name: project, in: query, required: true, schema: { type: string } }
+  - { name: domain, in: query, required: true, schema: { type: string } }
+get:
+  operationId: getModelApplication
+  tags: [Models]
+  summary: Get a redacted VLLM model configuration
+  security: [{ apiKeyAuth: [] }]
+  responses:
+    '200':
+      description: Model details and redacted editable configuration.
+      content: { application/json: { schema: { $ref: ../aione.yaml#/components/schemas/ModelDetailEnvelope } } }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
+put:
+  operationId: updateModelApplication
+  tags: [Models]
+  summary: Update runtime configuration and redeploy a VLLM model
+  security: [{ apiKeyAuth: [] }]
+  requestBody:
+    required: true
+    content: { application/json: { schema: { $ref: ../aione.yaml#/components/schemas/ModelUpdateRequest } } }
+  responses:
+    '200': { description: Updated model, content: { application/json: { schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope } } } }
+    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
+    '409': { $ref: ../aione.yaml#/components/responses/Conflict }
+delete:
+  operationId: deleteModelApplication
+  tags: [Models]
+  summary: Delete a stopped, unassigned, or failed VLLM model
+  security: [{ apiKeyAuth: [] }]
+  responses:
+    '200': { description: Deleted, content: { application/json: { schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope } } } }
+    '401': { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    '404': { $ref: ../aione.yaml#/components/responses/NotFound }
+    '409': { $ref: ../aione.yaml#/components/responses/Conflict }

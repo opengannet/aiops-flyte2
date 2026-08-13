@@ -47,6 +47,8 @@ post:
               name: Qwen App
               code: qwen
               profile: VLLM
+              image: vllm
+              modelCacheSize: 80Gi
               resourceDefinition: { cpu: "4", memory: 16Gi, gpu: 1 }
   responses:
     "200":

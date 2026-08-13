@@ -1,0 +1,34 @@
+get:
+  operationId: getAioneContext
+  tags: [Models]
+  summary: Resolve the configured Flyte model scope
+  description: Returns the server-side organization together with the requested project and domain. This succeeds even when the scope contains no models.
+  security: [{ apiKeyAuth: [] }]
+  parameters:
+    - in: query
+      name: project
+      required: true
+      schema: { type: string, minLength: 1 }
+    - in: query
+      name: domain
+      required: true
+      schema: { type: string, minLength: 1 }
+  responses:
+    "200":
+      description: The resolved Flyte scope.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: ../aione.yaml#/components/schemas/SuccessEnvelope
+              - type: object
+                properties:
+                  data:
+                    type: object
+                    required: [org, project, domain]
+                    properties:
+                      org: { type: string }
+                      project: { type: string }
+                      domain: { type: string }
+    "400": { $ref: ../aione.yaml#/components/responses/BadRequest }
+    "401": { $ref: ../aione.yaml#/components/responses/Unauthorized }

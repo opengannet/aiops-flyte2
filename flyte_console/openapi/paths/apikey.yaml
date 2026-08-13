@@ -1,17 +1,21 @@
 post:
   operationId: getModelApiKey
   tags: [Models]
-  summary: Get a model API key
-  description: This route does not use AIONE external API-key authentication.
-  security: []
+  summary: Model API key migration tombstone
+  description: API key creation has moved to the aione-api deployment publication page.
+  security: [{ apiKeyAuth: [] }]
   parameters:
     - $ref: ../aione.yaml#/components/parameters/modelCode
   responses:
-    '200':
-      description: A model invocation API key.
+    "410":
+      description: API key creation has moved to aione-api.
       content:
         application/json:
-          schema: { $ref: ../aione.yaml#/components/schemas/SuccessEnvelope }
-          example: { status: 200, data: sk-example }
-    '400': { $ref: ../aione.yaml#/components/responses/BadRequest }
-    '502': { $ref: ../aione.yaml#/components/responses/UpstreamFailure }
+          schema: { $ref: ../aione.yaml#/components/schemas/ErrorEnvelope }
+          example:
+            {
+              status: 410,
+              message: "model API key creation moved to https://aione.example/models/deployments",
+            }
+    "401": { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    "502": { $ref: ../aione.yaml#/components/responses/UpstreamFailure }

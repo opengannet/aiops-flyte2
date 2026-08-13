@@ -1,69 +1,72 @@
 import { NextRequest } from "next/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { statusError } from "@/server/http/response";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
-const createLlmApiKeyMock = vi.hoisted(() => vi.fn());
+const previousExternalAPIKeys = process.env.EXTERNAL_API_KEYS;
+const previousAionePublicURL = process.env.AIONE_PUBLIC_URL;
 
-vi.mock("@/server/llm/token", () => ({
-  createLlmApiKey: createLlmApiKeyMock,
-}));
-
-describe("AIONE API key route", () => {
+describe("AIONE API key compatibility route", () => {
   beforeEach(() => {
-    vi.resetAllMocks();
-    createLlmApiKeyMock.mockImplementation(({ model }: { model: string }) => {
-      if (!model.trim()) {
-        throw statusError("model is required", 400);
-      }
-      return Promise.resolve({
-        model,
-        name: "flyte-key",
-        key: "sk-created",
-      });
-    });
+    process.env.EXTERNAL_API_KEYS = "test-key";
+    process.env.AIONE_PUBLIC_URL = "https://gateway.example.test/";
   });
 
-  it("returns the generated key string in the existing envelope shape", async () => {
+  afterAll(() => {
+    process.env.EXTERNAL_API_KEYS = previousExternalAPIKeys;
+    process.env.AIONE_PUBLIC_URL = previousAionePublicURL;
+  });
+
+  it.each([undefined, "wrong-key"])(
+    "rejects a missing or incorrect external API key (%s)",
+    async (apiKey) => {
+      const { POST } = await import("./route");
+      const response = await POST(
+        new NextRequest("http://localhost/v2/api/aione/apikey/model-a", {
+          method: "POST",
+          headers: apiKey ? { "X-API-Key": apiKey } : undefined,
+        }),
+        { params: { modelCode: ["model-a"] } },
+      );
+
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toEqual({
+        status: 401,
+        message: "unauthorized",
+      });
+    },
+  );
+
+  it("returns a 410 migration response without creating a key", async () => {
     const { POST } = await import("./route");
     const response = await POST(
       new NextRequest("http://localhost/v2/api/aione/apikey/model-a", {
         method: "POST",
+        headers: { "X-API-Key": "test-key" },
       }),
       { params: { modelCode: ["model-a"] } },
     );
-    const body = await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body).toEqual({ status: 200, data: "sk-created" });
-    expect(createLlmApiKeyMock).toHaveBeenCalledWith({ model: "model-a" });
-  });
-
-  it("restores slash-delimited model codes from catch-all path segments", async () => {
-    const { POST } = await import("./route");
-    await POST(
-      new NextRequest(
-        "http://localhost/v2/api/aione/apikey/sakamakismile/Qwen3.6-27B-NVFP4",
-        { method: "POST" },
-      ),
-      { params: { modelCode: ["sakamakismile", "Qwen3.6-27B-NVFP4"] } },
-    );
-
-    expect(createLlmApiKeyMock).toHaveBeenCalledWith({
-      model: "sakamakismile/Qwen3.6-27B-NVFP4",
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toEqual({
+      status: 410,
+      message:
+        "model API key creation moved to https://gateway.example.test/models/deployments?model=model-a",
     });
   });
 
-  it("returns a standard error envelope for empty model codes", async () => {
+  it("encodes slash-delimited model codes in the migration URL", async () => {
     const { POST } = await import("./route");
     const response = await POST(
-      new NextRequest("http://localhost/v2/api/aione/apikey/%20", {
+      new NextRequest("http://localhost/v2/api/aione/apikey/org/model-a", {
         method: "POST",
+        headers: { "X-API-Key": "test-key" },
       }),
-      { params: { modelCode: [" "] } },
+      { params: { modelCode: ["org", "model-a"] } },
     );
-    const body = await response.json();
 
-    expect(response.status).toBe(400);
-    expect(body).toEqual({ status: 400, message: "model is required" });
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toMatchObject({
+      message:
+        "model API key creation moved to https://gateway.example.test/models/deployments?model=org%2Fmodel-a",
+    });
   });
 });

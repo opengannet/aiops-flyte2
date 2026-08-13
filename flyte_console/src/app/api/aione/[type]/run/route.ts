@@ -43,15 +43,5 @@ export async function POST(request: NextRequest, context: RouteContext) {
 }
 
 function modelRunResponse(result: unknown) {
-  const app = (
-    result as {
-      app?: { name?: string; code?: string; profile?: string; url?: string };
-    }
-  ).app;
-  return {
-    name: app?.name ?? "",
-    code: app?.code ?? "",
-    profile: app?.profile ?? "",
-    url: app?.url ?? "",
-  };
+  return (result as { app?: unknown }).app ?? {};
 }

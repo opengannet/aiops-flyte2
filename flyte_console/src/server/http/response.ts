@@ -48,10 +48,21 @@ function errorStatus(error: unknown) {
     return (error as { status: number }).status;
   }
   if (error instanceof ConnectError) {
-    if (error.code === Code.NotFound) {
-      return 404;
+    switch (error.code) {
+      case Code.InvalidArgument:
+        return 400;
+      case Code.Unauthenticated:
+      case Code.PermissionDenied:
+        return 401;
+      case Code.NotFound:
+        return 404;
+      case Code.AlreadyExists:
+      case Code.Aborted:
+      case Code.FailedPrecondition:
+        return 409;
+      default:
+        return 502;
     }
-    return error.code === Code.InvalidArgument ? 400 : 502;
   }
   return 400;
 }

@@ -25,9 +25,15 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const { type, id } = await context.params;
+    const externalType = parseAioneExternalType(type ?? "");
+    const project = request.nextUrl.searchParams.get("project")?.trim();
+    const domain = request.nextUrl.searchParams.get("domain")?.trim();
     const result = await stopAioneExternalRun(
-      parseAioneExternalType(type ?? ""),
+      externalType,
       decodeURIComponent(id ?? ""),
+      externalType === "model" && project && domain
+        ? { project, domain }
+        : undefined,
     );
     return okEnvelope(result);
   } catch (error) {
