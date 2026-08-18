@@ -77,7 +77,9 @@ assert_contains 'NERDCTL=(sudo env HTTP_PROXY="${HTTP_PROXY:-}"'
 assert_contains '/usr/local/bin/nerdctl --address /run/k3s/containerd/containerd.sock --namespace k8s.io'
 assert_contains '--hosts-dir /var/lib/rancher/k3s/agent/etc/containerd/certs.d'
 assert_contains '"${NERDCTL[@]}" build "${build_proxy_args[@]}" -t "${IMAGE_REPOSITORY}:${IMAGE_TAG}" -f Dockerfile .'
-assert_contains '"${NERDCTL[@]}" build "${build_proxy_args[@]}" -t "${DOWNLOADER_IMAGE_REPOSITORY}:latest" -f flyteplugins/aione/downloader/Dockerfile flyteplugins/aione/downloader'
+assert_contains '--build-arg HTTP_PROXY='
+assert_contains '--build-arg HTTPS_PROXY='
+assert_contains '"${NERDCTL[@]}" build "${downloader_build_args[@]}" -t "${DOWNLOADER_IMAGE_REPOSITORY}:latest" -f flyteplugins/aione/downloader/Dockerfile flyteplugins/aione/downloader'
 assert_contains "IMAGE_REPOSITORY='flyte-binary-v2'"
 assert_contains "DOWNLOADER_IMAGE_REPOSITORY='aione-downloader'"
 assert_contains "IMAGE_TAG='main-${short_head}'"

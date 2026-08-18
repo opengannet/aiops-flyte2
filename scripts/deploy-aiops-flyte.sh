@@ -274,7 +274,17 @@ if [[ -n "${PROXY_URL:-}" ]]; then
   )
 fi
 "${NERDCTL[@]}" build "${build_proxy_args[@]}" -t "${IMAGE_REPOSITORY}:${IMAGE_TAG}" -f Dockerfile .
-"${NERDCTL[@]}" build "${build_proxy_args[@]}" -t "${DOWNLOADER_IMAGE_REPOSITORY}:latest" -f flyteplugins/aione/downloader/Dockerfile flyteplugins/aione/downloader
+# The downloader image uses only internal mirrors. Explicitly clear build-time
+# proxy variables so pip does not try to use a SOCKS proxy without PySocks.
+downloader_build_args=(
+  --build-arg HTTP_PROXY=
+  --build-arg HTTPS_PROXY=
+  --build-arg http_proxy=
+  --build-arg https_proxy=
+  --build-arg NO_PROXY="$NO_PROXY"
+  --build-arg no_proxy="$NO_PROXY"
+)
+"${NERDCTL[@]}" build "${downloader_build_args[@]}" -t "${DOWNLOADER_IMAGE_REPOSITORY}:latest" -f flyteplugins/aione/downloader/Dockerfile flyteplugins/aione/downloader
 
 prune_old_release_images() {
   if [[ "$IMAGE_TAG" != "$IMAGE_TAG_PREFIX"* ]]; then
