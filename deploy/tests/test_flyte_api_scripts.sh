@@ -27,6 +27,8 @@ assert_file_contains() {
 }
 
 assert_file_contains "$ROOT_DIR/tests/start_ssh_workspace.sh" "ENDPOINT=\"\${ENDPOINT:-$DEFAULT_ENDPOINT}\""
+assert_file_contains "$ROOT_DIR/tests/lib/flyte_api.sh" '"$buf_bin" build --path flyteidl2'
+assert_file_contains "$ROOT_DIR/tests/lib/flyte_api.sh" '"$buf_bin" curl --schema "$schema_file"'
 assert_file_contains "$ROOT_DIR/tests/start_ml_task.sh" "ENDPOINT=\"\${ENDPOINT:-$DEFAULT_ENDPOINT}\""
 assert_file_contains "$ROOT_DIR/tests/get_run_status.sh" "ENDPOINT=\"\${ENDPOINT:-$DEFAULT_ENDPOINT}\""
 assert_file_contains "$ROOT_DIR/tests/start_aione_instance.sh" "API_PATH=\"\${API_PATH:-/v2/api/aione/instance/run}\""
@@ -109,6 +111,7 @@ payload="$(build_ssh_workspace_payload \
   "testorg" "flytesnacks" "development" \
   "ubuntu:22.04" "dev" "ssh-rsa AAAA user@example" "20Gi" "NodePort" "30222")"
 assert_eq "ssh_workspace" "$(json_get "$payload" "taskSpec.taskTemplate.type")" "workspace task type"
+assert_eq "True" "$(json_get "$payload" "taskSpec.taskTemplate.custom.enableSsh")" "workspace ssh enabled"
 assert_eq "dev" "$(json_get "$payload" "taskSpec.taskTemplate.custom.sshUser")" "workspace ssh user"
 assert_eq "30222" "$(json_get "$payload" "taskSpec.taskTemplate.custom.nodePort")" "workspace node port"
 

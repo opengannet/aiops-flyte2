@@ -121,6 +121,7 @@ payload = {
             "type": "ssh_workspace",
             "custom": {
                 "image": image,
+                "enableSsh": True,
                 "sshUser": ssh_user,
                 "authorizedKeys": [authorized_key],
                 "workspaceSize": workspace_size,
@@ -259,7 +260,19 @@ flyte_buf_curl() {
   local endpoint="$1"
   local procedure="$2"
   local payload="$3"
-  local buf_bin
+  local buf_bin repo_root schema_file status
   buf_bin="$(buf_command)"
-  "$buf_bin" curl --schema . "$endpoint/$procedure" --data "$payload"
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+  schema_file="$(mktemp --suffix=.binpb)"
+  if ! (cd "$repo_root" && "$buf_bin" build --path flyteidl2 -o "$schema_file"); then
+    rm -f "$schema_file"
+    return 1
+  fi
+  if "$buf_bin" curl --schema "$schema_file" "$endpoint/$procedure" --data "$payload"; then
+    status=0
+  else
+    status=$?
+  fi
+  rm -f "$schema_file"
+  return "$status"
 }
