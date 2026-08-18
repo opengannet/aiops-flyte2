@@ -14,6 +14,7 @@ IMAGE_TAG="${IMAGE_TAG:-${IMAGE_TAG_PREFIX}$(git rev-parse --short HEAD)}"
 EXPECTED_COMMIT="${EXPECTED_COMMIT:-$(git rev-parse HEAD)}"
 NERDCTL_VERSION="${NERDCTL_VERSION:-2.3.3}"
 PROXY_URL="${PROXY_URL:-}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-/root/.kube/config}"
 DRY_RUN="${DRY_RUN:-0}"
 
 shell_quote() {
@@ -21,7 +22,7 @@ shell_quote() {
 }
 
 remote_env() {
-  printf "REMOTE_HOST=%s REMOTE_DIR=%s REMOTE_BRANCH=%s NAMESPACE=%s RELEASE=%s IMAGE_REPOSITORY=%s DOWNLOADER_IMAGE_REPOSITORY=%s IMAGE_TAG=%s IMAGE_TAG_PREFIX=%s IMAGE_TAG_KEEP=%s EXPECTED_COMMIT=%s NERDCTL_VERSION=%s PROXY_URL=%s" \
+  printf "REMOTE_HOST=%s REMOTE_DIR=%s REMOTE_BRANCH=%s NAMESPACE=%s RELEASE=%s IMAGE_REPOSITORY=%s DOWNLOADER_IMAGE_REPOSITORY=%s IMAGE_TAG=%s IMAGE_TAG_PREFIX=%s IMAGE_TAG_KEEP=%s EXPECTED_COMMIT=%s NERDCTL_VERSION=%s PROXY_URL=%s KUBECONFIG_PATH=%s" \
     "$(shell_quote "$REMOTE_HOST")" \
     "$(shell_quote "$REMOTE_DIR")" \
     "$(shell_quote "$REMOTE_BRANCH")" \
@@ -34,7 +35,8 @@ remote_env() {
     "$(shell_quote "$IMAGE_TAG_KEEP")" \
     "$(shell_quote "$EXPECTED_COMMIT")" \
     "$(shell_quote "$NERDCTL_VERSION")" \
-    "$(shell_quote "$PROXY_URL")"
+    "$(shell_quote "$PROXY_URL")" \
+    "$(shell_quote "$KUBECONFIG_PATH")"
 }
 
 SSH_BIN="${SSH_BIN:-ssh}"
@@ -75,9 +77,39 @@ if [[ -n "${EXPECTED_COMMIT:-}" && "$actual_commit" != "$EXPECTED_COMMIT" ]]; th
   exit 1
 fi
 
-if ! command -v k3s >/dev/null 2>&1; then
-  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --write-kubeconfig-mode=644" sh -
+if ! command -v k3s >/dev/null 2>&1 || ! command -v kubectl >/dev/null 2>&1; then
+  printf 'This deployment requires an existing k3s cluster client and node agent runtime.\n' >&2
+  exit 1
 fi
+
+K3S_SYSTEMD_UNIT="k3s-agent"
+if ! systemctl is-active --quiet "${K3S_SYSTEMD_UNIT}.service"; then
+  printf 'The existing k3s cluster node agent is not active: %s.service\n' "$K3S_SYSTEMD_UNIT" >&2
+  exit 1
+fi
+
+if [[ ! -r "$KUBECONFIG_PATH" ]]; then
+  printf 'Kubernetes cluster kubeconfig is not readable: %s\n' "$KUBECONFIG_PATH" >&2
+  exit 1
+fi
+export KUBECONFIG="$KUBECONFIG_PATH"
+
+wait_for_cluster() {
+  local attempt
+  for attempt in {1..60}; do
+    if systemctl is-active --quiet "${K3S_SYSTEMD_UNIT}.service" \
+      && [[ -S /run/k3s/containerd/containerd.sock ]] \
+      && kubectl get --raw=/readyz >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  systemctl is-active "${K3S_SYSTEMD_UNIT}.service"
+  test -S /run/k3s/containerd/containerd.sock
+  kubectl get --raw=/readyz >/dev/null
+}
+
+wait_for_cluster
 
 ensure_k3s_registries() {
   cat >/tmp/k3s-registries.yaml.expected <<'EOF'
@@ -97,21 +129,14 @@ EOF
   if ! sudo test -f /etc/rancher/k3s/registries.yaml \
     || ! sudo cmp -s /tmp/k3s-registries.yaml.expected /etc/rancher/k3s/registries.yaml; then
     sudo install -D -m 0644 /tmp/k3s-registries.yaml.expected /etc/rancher/k3s/registries.yaml
-    sudo systemctl restart k3s
-    for _ in {1..60}; do
-      if sudo k3s kubectl get nodes >/dev/null 2>&1; then
-        return 0
-      fi
-      sleep 1
-    done
-    sudo k3s kubectl get nodes >/dev/null
+    sudo systemctl restart "${K3S_SYSTEMD_UNIT}.service"
+    wait_for_cluster
   fi
 }
 
 ensure_k3s_registries
 
-export KUBECONFIG="${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml}"
-sudo k3s kubectl get nodes
+kubectl get nodes
 
 if ! command -v helm >/dev/null 2>&1; then
   curl -fsSL -o /tmp/get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
@@ -186,11 +211,11 @@ ensure_buildkit_k3s() {
   fi
 
   restart_buildkit=0
-  cat >/tmp/buildkit-k3s.service.expected <<'EOF'
+  cat >/tmp/buildkit-k3s.service.expected <<EOF
 [Unit]
 Description=BuildKit daemon for k3s containerd
-After=k3s.service
-Requires=k3s.service
+After=${K3S_SYSTEMD_UNIT}.service
+Requires=${K3S_SYSTEMD_UNIT}.service
 
 [Service]
 Type=simple
@@ -332,22 +357,17 @@ pull_containerd_image ghcr.io/unionai-oss/flyteconsole-v2:latest
 pull_containerd_image rustfs/rustfs:1.0.0-alpha.94
 pull_containerd_image busybox:stable
 
-sudo k3s kubectl -n kube-system delete pod -l k8s-app=kube-dns --ignore-not-found || true
-sudo k3s kubectl -n kube-system delete pod -l app=local-path-provisioner --ignore-not-found || true
-if sudo k3s kubectl -n kube-system get deploy/traefik >/dev/null 2>&1; then
-  sudo k3s kubectl -n kube-system rollout restart deploy/traefik
-fi
 kubectl -n kube-system rollout status deploy/coredns --timeout=5m
 kubectl -n kube-system rollout status deploy/local-path-provisioner --timeout=5m
-if sudo k3s kubectl -n kube-system get deploy/traefik >/dev/null 2>&1; then
+if kubectl -n kube-system get deploy/traefik >/dev/null 2>&1; then
   kubectl -n kube-system rollout status deploy/traefik --timeout=5m
 fi
 
 sudo mkdir -p /var/lib/flyte/storage/rustfs
 sudo chown -R 10001:10001 /var/lib/flyte/storage/rustfs
 
-sudo k3s kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | sudo k3s kubectl apply -f -
-sudo k3s kubectl -n "$NAMESPACE" apply -f - <<POSTGRES_MANIFEST
+kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n "$NAMESPACE" apply -f - <<POSTGRES_MANIFEST
 apiVersion: v1
 kind: ConfigMap
 metadata:

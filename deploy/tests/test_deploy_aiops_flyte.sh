@@ -15,6 +15,7 @@ full_head="$(git -C "$ROOT_DIR" rev-parse HEAD)"
 output="$(
   env -u IMAGE_TAG -u IMAGE_TAG_PREFIX -u IMAGE_TAG_KEEP -u REMOTE_DIR -u REMOTE_BRANCH \
     DRY_RUN=1 REMOTE_HOST=aione-flyte2 PROXY_URL=http://172.19.210.24:7890 \
+    KUBECONFIG_PATH=/root/.kube/flyte-cluster.yaml \
     bash "$SCRIPT"
 )"
 
@@ -45,16 +46,26 @@ assert_contains 'git pull --ff-only origin "$REMOTE_BRANCH"'
 assert_contains 'actual_commit="$(git rev-parse HEAD)"'
 assert_contains 'Expected remote checkout at'
 assert_contains "PROXY_URL='http://172.19.210.24:7890'"
+assert_contains "KUBECONFIG_PATH='/root/.kube/flyte-cluster.yaml'"
 assert_contains 'export HTTP_PROXY="$PROXY_URL"'
 assert_contains '--build-arg HTTP_PROXY="$PROXY_URL"'
-assert_contains 'curl -sfL https://get.k3s.io'
+assert_contains 'This deployment requires an existing k3s cluster client and node agent runtime.'
+assert_contains 'systemctl is-active --quiet "${K3S_SYSTEMD_UNIT}.service"'
+assert_contains 'K3S_SYSTEMD_UNIT="k3s-agent"'
+assert_not_contains 'K3S_SYSTEMD_UNIT="k3s"'
+assert_contains 'export KUBECONFIG="$KUBECONFIG_PATH"'
+assert_contains 'kubectl get --raw=/readyz'
+assert_contains 'wait_for_cluster'
+assert_not_contains 'curl -sfL https://get.k3s.io'
 assert_contains 'ensure_k3s_registries'
 assert_contains 'docker.ops.fzyun.io:5000'
 assert_contains 'http://docker.ops.fzyun.io:5000'
 assert_contains 'insecure_skip_verify: true'
-assert_contains 'sudo systemctl restart k3s'
+assert_contains 'sudo systemctl restart "${K3S_SYSTEMD_UNIT}.service"'
 assert_contains 'get_helm.sh'
 assert_contains 'ensure_buildkit_k3s'
+assert_contains 'After=${K3S_SYSTEMD_UNIT}.service'
+assert_contains 'Requires=${K3S_SYSTEMD_UNIT}.service'
 assert_contains 'wait_for_buildkit'
 assert_contains 'install_if_changed /tmp/buildkit-k3s.service.expected /etc/systemd/system/buildkit-k3s.service'
 assert_contains 'restart_buildkit=1'
@@ -81,6 +92,9 @@ assert_not_contains 'docker-buildx'
 assert_contains 'pull_containerd_image rancher/mirrored-library-busybox:1.37.0'
 assert_contains 'pull_containerd_image rancher/mirrored-library-traefik:3.6.13'
 assert_contains 'kubectl -n kube-system rollout status deploy/traefik'
+assert_not_contains 'delete pod -l k8s-app=kube-dns'
+assert_not_contains 'delete pod -l app=local-path-provisioner'
+assert_not_contains 'rollout restart deploy/traefik'
 assert_contains 'chown -R 10001:10001 /var/lib/flyte/storage/rustfs'
 assert_contains 'pull_containerd_image postgres:17'
 assert_contains 'CREATE DATABASE runs'

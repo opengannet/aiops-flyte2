@@ -7,7 +7,7 @@ NAMESPACE="${NAMESPACE:-flyte}"
 CONSOLE_URL="${CONSOLE_URL:-http://172.19.66.218:30081/v2/projects}"
 NERDCTL_VERSION="${NERDCTL_VERSION:-2.3.3}"
 PROXY_URL="${PROXY_URL:-}"
-KUBECONFIG_PATH="${KUBECONFIG_PATH:-/etc/rancher/k3s/k3s.yaml}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-/root/.kube/config}"
 EXPECTED_COMMIT="${EXPECTED_COMMIT:-$(git rev-parse HEAD)}"
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -44,9 +44,10 @@ if [[ -n "${PROXY_URL:-}" ]]; then
   export no_proxy="$NO_PROXY"
 fi
 
-K3S_SYSTEMD_UNIT="k3s"
-if systemctl is-active --quiet k3s-agent.service; then
-  K3S_SYSTEMD_UNIT="k3s-agent"
+K3S_SYSTEMD_UNIT="k3s-agent"
+if ! systemctl is-active --quiet "${K3S_SYSTEMD_UNIT}.service"; then
+  printf 'The existing k3s cluster node agent is not active: %s.service\n' "$K3S_SYSTEMD_UNIT" >&2
+  exit 1
 fi
 
 if [[ ! -r "$KUBECONFIG_PATH" ]]; then
