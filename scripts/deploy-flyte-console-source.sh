@@ -40,6 +40,20 @@ if [[ -n "${PROXY_URL:-}" ]]; then
   export no_proxy="$NO_PROXY"
 fi
 
+K3S_SYSTEMD_UNIT="k3s"
+if systemctl is-active --quiet k3s-agent.service; then
+  K3S_SYSTEMD_UNIT="k3s-agent"
+  if [[ -z "${KUBECONFIG:-}" && -f /etc/rancher/k3s/config.yaml && -f /etc/rancher/k3s/k3s.yaml ]]; then
+    control_plane_url="$(awk '$1 == "server:" { print $2; exit }' /etc/rancher/k3s/config.yaml)"
+    if [[ -n "$control_plane_url" ]]; then
+      agent_kubeconfig="$(mktemp)"
+      sed "s#server: https://127.0.0.1:6443#server: ${control_plane_url}#" /etc/rancher/k3s/k3s.yaml >"$agent_kubeconfig"
+      export KUBECONFIG="$agent_kubeconfig"
+      trap 'rm -f "$agent_kubeconfig"' EXIT
+    fi
+  fi
+fi
+
 install_nerdctl_full() {
   local version="${NERDCTL_VERSION:-2.3.3}"
   local arch
@@ -107,11 +121,11 @@ ensure_buildkit_k3s() {
   fi
 
   restart_buildkit=0
-  cat >/tmp/buildkit-k3s.service.expected <<'EOF'
+  cat >/tmp/buildkit-k3s.service.expected <<EOF
 [Unit]
 Description=BuildKit daemon for k3s containerd
-After=k3s.service
-Requires=k3s.service
+After=${K3S_SYSTEMD_UNIT}.service
+Requires=${K3S_SYSTEMD_UNIT}.service
 
 [Service]
 Type=simple

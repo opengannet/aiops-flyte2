@@ -36,6 +36,12 @@ assert_contains 'aione-flyte2'
 assert_contains "REMOTE_DIR='/opt/aiops-flyte2'"
 assert_contains "CONSOLE_URL='http://172.19.66.218:30081/v2/projects'"
 assert_contains 'git pull --ff-only origin main'
+assert_contains 'systemctl is-active --quiet k3s-agent.service'
+assert_contains 'K3S_SYSTEMD_UNIT="k3s-agent"'
+assert_contains 'control_plane_url="$(awk'
+assert_contains 'export KUBECONFIG="$agent_kubeconfig"'
+assert_contains 'After=${K3S_SYSTEMD_UNIT}.service'
+assert_contains 'Requires=${K3S_SYSTEMD_UNIT}.service'
 assert_contains 'ensure_buildkit_k3s'
 assert_contains 'wait_for_buildkit'
 assert_contains 'install_if_changed /tmp/buildkit-k3s.service.expected /etc/systemd/system/buildkit-k3s.service'
