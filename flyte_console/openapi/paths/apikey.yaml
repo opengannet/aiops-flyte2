@@ -1,21 +1,22 @@
 post:
   operationId: getModelApiKey
   tags: [Models]
-  summary: Model API key migration tombstone
-  description: API key creation has moved to the aione-api deployment publication page.
+  summary: Create a model API key
+  description: Creates a new API key restricted to the published model code. The model code may contain forward slashes.
   security: [{ apiKeyAuth: [] }]
   parameters:
     - $ref: ../aione.yaml#/components/parameters/modelCode
   responses:
-    "410":
-      description: API key creation has moved to aione-api.
+    "200":
+      description: A new model-scoped API key.
       content:
         application/json:
-          schema: { $ref: ../aione.yaml#/components/schemas/ErrorEnvelope }
-          example:
-            {
-              status: 410,
-              message: "model API key creation moved to https://aione.example/models/deployments",
-            }
+          schema:
+            { $ref: ../aione.yaml#/components/schemas/ModelApiKeyEnvelope }
+          example: { status: 200, data: sk-example }
+    "400": { $ref: ../aione.yaml#/components/responses/BadRequest }
     "401": { $ref: ../aione.yaml#/components/responses/Unauthorized }
+    "404": { $ref: ../aione.yaml#/components/responses/NotFound }
+    "409": { $ref: ../aione.yaml#/components/responses/Conflict }
     "502": { $ref: ../aione.yaml#/components/responses/UpstreamFailure }
+    "503": { $ref: ../aione.yaml#/components/responses/ServiceUnavailable }

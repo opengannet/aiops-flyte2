@@ -92,11 +92,15 @@ components:
       $ref: ./components/responses.yaml#/Conflict
     UpstreamFailure:
       $ref: ./components/responses.yaml#/UpstreamFailure
+    ServiceUnavailable:
+      $ref: ./components/responses.yaml#/ServiceUnavailable
   schemas:
     SuccessEnvelope:
       $ref: ./components/schemas.yaml#/SuccessEnvelope
     ErrorEnvelope:
       $ref: ./components/schemas.yaml#/ErrorEnvelope
+    ModelApiKeyEnvelope:
+      $ref: ./components/schemas.yaml#/ModelApiKeyEnvelope
     InstanceRunRequest:
       $ref: ./components/schemas.yaml#/InstanceRunRequest
     TaskRunRequest:

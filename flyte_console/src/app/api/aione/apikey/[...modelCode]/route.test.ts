@@ -1,18 +1,26 @@
 import { NextRequest } from "next/server";
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { statusError } from "@/server/http/response";
 
-const previousExternalAPIKeys = process.env.EXTERNAL_API_KEYS;
-const previousAionePublicURL = process.env.AIONE_PUBLIC_URL;
+const createLlmApiKeyMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/server/llm/token", () => ({
+  createLlmApiKey: createLlmApiKeyMock,
+}));
 
 describe("AIONE API key compatibility route", () => {
   beforeEach(() => {
     process.env.EXTERNAL_API_KEYS = "test-key";
-    process.env.AIONE_PUBLIC_URL = "https://gateway.example.test/";
+    createLlmApiKeyMock.mockReset();
+    createLlmApiKeyMock.mockResolvedValue({
+      model: "model-a",
+      name: "flyte-test",
+      key: "sk-created-key",
+    });
   });
 
-  afterAll(() => {
-    process.env.EXTERNAL_API_KEYS = previousExternalAPIKeys;
-    process.env.AIONE_PUBLIC_URL = previousAionePublicURL;
+  afterEach(() => {
+    delete process.env.EXTERNAL_API_KEYS;
   });
 
   it.each([undefined, "wrong-key"])(
@@ -32,28 +40,32 @@ describe("AIONE API key compatibility route", () => {
         status: 401,
         message: "unauthorized",
       });
+      expect(createLlmApiKeyMock).not.toHaveBeenCalled();
     },
   );
 
-  it("returns a 410 migration response without creating a key", async () => {
+  it.each([
+    ["X-API-Key", "test-key"],
+    ["Authorization", "Bearer test-key"],
+  ])("creates a key using %s authentication", async (header, value) => {
     const { POST } = await import("./route");
     const response = await POST(
       new NextRequest("http://localhost/v2/api/aione/apikey/model-a", {
         method: "POST",
-        headers: { "X-API-Key": "test-key" },
+        headers: { [header]: value },
       }),
-      { params: { modelCode: ["model-a"] } },
+      { params: Promise.resolve({ modelCode: ["model-a"] }) },
     );
 
-    expect(response.status).toBe(410);
+    expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
-      status: 410,
-      message:
-        "model API key creation moved to https://gateway.example.test/models/deployments?model=model-a",
+      status: 200,
+      data: "sk-created-key",
     });
+    expect(createLlmApiKeyMock).toHaveBeenCalledWith({ model: "model-a" });
   });
 
-  it("encodes slash-delimited model codes in the migration URL", async () => {
+  it("preserves slash-delimited model codes", async () => {
     const { POST } = await import("./route");
     const response = await POST(
       new NextRequest("http://localhost/v2/api/aione/apikey/org/model-a", {
@@ -63,10 +75,28 @@ describe("AIONE API key compatibility route", () => {
       { params: { modelCode: ["org", "model-a"] } },
     );
 
-    expect(response.status).toBe(410);
-    await expect(response.json()).resolves.toMatchObject({
-      message:
-        "model API key creation moved to https://gateway.example.test/models/deployments?model=org%2Fmodel-a",
-    });
+    expect(response.status).toBe(200);
+    expect(createLlmApiKeyMock).toHaveBeenCalledWith({ model: "org/model-a" });
   });
+
+  it.each([404, 409, 502, 503])(
+    "preserves mapped error status %i",
+    async (status) => {
+      createLlmApiKeyMock.mockRejectedValue(statusError("safe error", status));
+      const { POST } = await import("./route");
+      const response = await POST(
+        new NextRequest("http://localhost/v2/api/aione/apikey/model-a", {
+          method: "POST",
+          headers: { "X-API-Key": "test-key" },
+        }),
+        { params: { modelCode: ["model-a"] } },
+      );
+
+      expect(response.status).toBe(status);
+      await expect(response.json()).resolves.toEqual({
+        status,
+        message: "safe error",
+      });
+    },
+  );
 });

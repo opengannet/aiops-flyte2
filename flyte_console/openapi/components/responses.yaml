@@ -33,3 +33,10 @@ UpstreamFailure:
       schema:
         $ref: ./schemas.yaml#/ErrorEnvelope
       example: { status: 502, message: upstream request failed }
+ServiceUnavailable:
+  description: Required server-side configuration is unavailable.
+  content:
+    application/json:
+      schema:
+        $ref: ./schemas.yaml#/ErrorEnvelope
+      example: { status: 503, message: service is not configured }

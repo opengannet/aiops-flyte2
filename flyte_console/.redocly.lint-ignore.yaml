@@ -1,5 +1,0 @@
-# The legacy API-key endpoint is intentionally a 410 tombstone and can never
-# return a successful response.
-openapi/paths/apikey.yaml:
-  operation-2xx-response:
-    - "#/post/responses"
