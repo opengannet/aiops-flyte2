@@ -39,6 +39,7 @@ assert_contains "CONSOLE_URL='http://172.19.66.218:30081/v2/projects'"
 assert_contains "KUBECONFIG_PATH='/etc/rancher/k3s/flyte-admin.yaml'"
 assert_contains "EXPECTED_COMMIT='0123456789abcdef'"
 assert_contains 'export KUBECONFIG="$KUBECONFIG_PATH"'
+assert_contains 'pypi.fzyun.io,registry.npmmirror.com'
 assert_contains 'kubectl get --raw=/readyz'
 assert_contains 'kubectl get namespace "$NAMESPACE"'
 assert_contains 'if [[ "$(git rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then'

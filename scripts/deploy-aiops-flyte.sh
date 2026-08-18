@@ -61,7 +61,7 @@ if [[ -n "${PROXY_URL:-}" ]]; then
   export HTTPS_PROXY="$PROXY_URL"
   export http_proxy="$PROXY_URL"
   export https_proxy="$PROXY_URL"
-  export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local}"
+  export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local,docker.fzyun.io,docker.ops.fzyun.io,mirrors.fzyun.io,pypi.fzyun.io,registry.npmmirror.com}"
   export no_proxy="$NO_PROXY"
 fi
 

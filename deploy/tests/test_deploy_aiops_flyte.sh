@@ -48,6 +48,7 @@ assert_contains 'Expected remote checkout at'
 assert_contains "PROXY_URL='http://172.19.210.24:7890'"
 assert_contains "KUBECONFIG_PATH='/root/.kube/flyte-cluster.yaml'"
 assert_contains 'export HTTP_PROXY="$PROXY_URL"'
+assert_contains 'pypi.fzyun.io,registry.npmmirror.com'
 assert_contains '--build-arg HTTP_PROXY="$PROXY_URL"'
 assert_contains 'This deployment requires an existing k3s cluster client and node agent runtime.'
 assert_contains 'systemctl is-active --quiet "${K3S_SYSTEMD_UNIT}.service"'
