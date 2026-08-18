@@ -11,6 +11,7 @@ fi
 
 output="$(
   DRY_RUN=1 REMOTE_HOST=aione-flyte2 REMOTE_DIR=/opt/aiops-flyte2 PROXY_URL=http://172.19.210.24:7890 \
+    KUBECONFIG_PATH=/etc/rancher/k3s/flyte-admin.yaml EXPECTED_COMMIT=0123456789abcdef \
     bash "$SCRIPT"
 )"
 
@@ -35,7 +36,17 @@ assert_not_contains() {
 assert_contains 'aione-flyte2'
 assert_contains "REMOTE_DIR='/opt/aiops-flyte2'"
 assert_contains "CONSOLE_URL='http://172.19.66.218:30081/v2/projects'"
+assert_contains "KUBECONFIG_PATH='/etc/rancher/k3s/flyte-admin.yaml'"
+assert_contains "EXPECTED_COMMIT='0123456789abcdef'"
+assert_contains 'export KUBECONFIG="$KUBECONFIG_PATH"'
+assert_contains 'kubectl get --raw=/readyz'
+assert_contains 'kubectl get namespace "$NAMESPACE"'
+assert_contains 'if [[ "$(git rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then'
 assert_contains 'git pull --ff-only origin main'
+assert_contains 'systemctl is-active --quiet k3s-agent.service'
+assert_contains 'K3S_SYSTEMD_UNIT="k3s-agent"'
+assert_contains 'After=${K3S_SYSTEMD_UNIT}.service'
+assert_contains 'Requires=${K3S_SYSTEMD_UNIT}.service'
 assert_contains 'ensure_buildkit_k3s'
 assert_contains 'wait_for_buildkit'
 assert_contains 'install_if_changed /tmp/buildkit-k3s.service.expected /etc/systemd/system/buildkit-k3s.service'

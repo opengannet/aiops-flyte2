@@ -16,6 +16,16 @@ ErrorEnvelope:
     message:
       type: string
       example: id is required
+ModelApiKeyEnvelope:
+  type: object
+  required: [status, data]
+  properties:
+    status:
+      type: integer
+      const: 200
+    data:
+      type: string
+      pattern: '^sk-.+'
 InstanceRunRequest:
   type: object
   required: [project, domain]

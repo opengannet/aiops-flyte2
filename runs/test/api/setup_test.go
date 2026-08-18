@@ -24,7 +24,6 @@ import (
 	"github.com/flyteorg/flyte/v2/runs/migrations"
 	"github.com/flyteorg/flyte/v2/runs/repository"
 	"github.com/flyteorg/flyte/v2/runs/repository/impl"
-	"github.com/flyteorg/flyte/v2/runs/repository/models"
 	"github.com/flyteorg/flyte/v2/runs/service"
 )
 
@@ -111,16 +110,6 @@ func TestMain(m *testing.M) {
 	repo, err := repository.NewRepository(testDB, *dbConfig)
 	if err != nil {
 		log.Printf("Failed to create repository: %v", err)
-		exitCode = 1
-		return
-	}
-	state := int32(projectpb.ProjectState_PROJECT_STATE_ACTIVE)
-	if err := impl.NewProjectRepo(testDB).CreateProject(ctx, &models.Project{
-		Identifier: testProject,
-		Name:       testProject,
-		State:      &state,
-	}); err != nil {
-		log.Printf("Failed to seed test project: %v", err)
 		exitCode = 1
 		return
 	}

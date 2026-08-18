@@ -147,6 +147,13 @@ spec:
                   key: api-key
             - name: AIONE_PUBLIC_URL
               value: https://llm.ops.fzyun.io
+            - name: LLM_KEYS_API_ORIGIN
+              value: https://llm.ops.fzyun.io
+            - name: LLM_KEYS_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: new-api
+                  key: api-token
             - name: UNION_ORG_OVERRIDE
               value: aione
             - name: EXTERNAL_API_FLYTE_ORG

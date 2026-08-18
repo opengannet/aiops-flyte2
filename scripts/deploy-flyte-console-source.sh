@@ -7,6 +7,8 @@ NAMESPACE="${NAMESPACE:-flyte}"
 CONSOLE_URL="${CONSOLE_URL:-http://172.19.66.218:30081/v2/projects}"
 NERDCTL_VERSION="${NERDCTL_VERSION:-2.3.3}"
 PROXY_URL="${PROXY_URL:-}"
+KUBECONFIG_PATH="${KUBECONFIG_PATH:-/etc/rancher/k3s/k3s.yaml}"
+EXPECTED_COMMIT="${EXPECTED_COMMIT:-$(git rev-parse HEAD)}"
 DRY_RUN="${DRY_RUN:-0}"
 
 shell_quote() {
@@ -14,12 +16,14 @@ shell_quote() {
 }
 
 remote_env() {
-  printf "REMOTE_DIR=%s NAMESPACE=%s CONSOLE_URL=%s NERDCTL_VERSION=%s PROXY_URL=%s" \
+  printf "REMOTE_DIR=%s NAMESPACE=%s CONSOLE_URL=%s NERDCTL_VERSION=%s PROXY_URL=%s KUBECONFIG_PATH=%s EXPECTED_COMMIT=%s" \
     "$(shell_quote "$REMOTE_DIR")" \
     "$(shell_quote "$NAMESPACE")" \
     "$(shell_quote "$CONSOLE_URL")" \
     "$(shell_quote "$NERDCTL_VERSION")" \
-    "$(shell_quote "$PROXY_URL")"
+    "$(shell_quote "$PROXY_URL")" \
+    "$(shell_quote "$KUBECONFIG_PATH")" \
+    "$(shell_quote "$EXPECTED_COMMIT")"
 }
 
 SSH_BIN="${SSH_BIN:-ssh}"
@@ -39,6 +43,19 @@ if [[ -n "${PROXY_URL:-}" ]]; then
   export NO_PROXY="${NO_PROXY:-127.0.0.1,localhost,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.svc,.cluster.local}"
   export no_proxy="$NO_PROXY"
 fi
+
+K3S_SYSTEMD_UNIT="k3s"
+if systemctl is-active --quiet k3s-agent.service; then
+  K3S_SYSTEMD_UNIT="k3s-agent"
+fi
+
+if [[ ! -r "$KUBECONFIG_PATH" ]]; then
+  printf 'Kubernetes kubeconfig is not readable: %s\n' "$KUBECONFIG_PATH" >&2
+  exit 1
+fi
+export KUBECONFIG="$KUBECONFIG_PATH"
+kubectl get --raw=/readyz >/dev/null
+kubectl get namespace "$NAMESPACE" >/dev/null
 
 install_nerdctl_full() {
   local version="${NERDCTL_VERSION:-2.3.3}"
@@ -107,11 +124,11 @@ ensure_buildkit_k3s() {
   fi
 
   restart_buildkit=0
-  cat >/tmp/buildkit-k3s.service.expected <<'EOF'
+  cat >/tmp/buildkit-k3s.service.expected <<EOF
 [Unit]
 Description=BuildKit daemon for k3s containerd
-After=k3s.service
-Requires=k3s.service
+After=${K3S_SYSTEMD_UNIT}.service
+Requires=${K3S_SYSTEMD_UNIT}.service
 
 [Service]
 Type=simple
@@ -167,7 +184,13 @@ curl_with_retries() {
 }
 
 cd "$REMOTE_DIR"
-git pull --ff-only origin main
+if [[ "$(git rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then
+  git pull --ff-only origin main
+fi
+if [[ "$(git rev-parse HEAD)" != "$EXPECTED_COMMIT" ]]; then
+  printf 'remote checkout is not at expected commit %s\n' "$EXPECTED_COMMIT" >&2
+  exit 1
+fi
 COMMIT="$(git rev-parse --short HEAD)"
 ensure_buildkit_k3s
 
