@@ -4,11 +4,7 @@
 
 import { AIONE_API_DOCS_URL, FLYTE_DOCS_FLYTE2_URL } from "@/lib/constants";
 import { getUiText } from "@/lib/uiText";
-import {
-  ArrowUpRightIcon,
-  CodeBracketIcon,
-  DocumentTextIcon,
-} from "@heroicons/react/24/outline";
+import { ArrowUpRightIcon } from "@heroicons/react/24/outline";
 import clsx from "clsx";
 import { AnimatePresence, motion } from "motion/react";
 import Link from "next/link";
@@ -22,12 +18,10 @@ type DocumentationCardProps = {
 const documentationLinks = [
   {
     href: FLYTE_DOCS_FLYTE2_URL,
-    icon: DocumentTextIcon,
     label: getUiText("userDocs"),
   },
   {
     href: AIONE_API_DOCS_URL,
-    icon: CodeBracketIcon,
     label: getUiText("apiDocs"),
   },
 ] as const;
@@ -36,12 +30,7 @@ type DocumentationLinkProps = (typeof documentationLinks)[number] & {
   isThin: boolean;
 };
 
-const DocumentationLink = ({
-  href,
-  icon: Icon,
-  isThin,
-  label,
-}: DocumentationLinkProps) => {
+const DocumentationLink = ({ href, isThin, label }: DocumentationLinkProps) => {
   const link = (
     <Link
       aria-label={label}
@@ -57,17 +46,14 @@ const DocumentationLink = ({
           : "min-h-11 w-full gap-2.5 px-2.5 py-2",
       )}
     >
-      <Icon className="size-4 shrink-0" aria-hidden="true" />
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-(--union) text-white transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
+        <ArrowUpRightIcon className="size-3.5" aria-hidden="true" />
+      </span>
 
       {!isThin && (
-        <>
-          <span className="flex-1 text-sm font-medium whitespace-nowrap">
-            {label}
-          </span>
-          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-(--union) text-white transition-transform duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5">
-            <ArrowUpRightIcon className="size-3.5" aria-hidden="true" />
-          </span>
-        </>
+        <span className="flex-1 text-sm font-medium whitespace-nowrap">
+          {label}
+        </span>
       )}
     </Link>
   );
