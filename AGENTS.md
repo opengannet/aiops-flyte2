@@ -7,7 +7,7 @@ This file is the project-level instruction file for Codex and other coding agent
 Repository root:
 
 ```text
-D:\flyte-work
+D:\code-work\aiops-flyte2
 ```
 
 Important areas:
@@ -33,6 +33,16 @@ Remote checkout:                         /opt/aiops-flyte2
 Active branch:                           main
 ```
 
+## Development Environment Boundaries
+
+- Keep the repository and all task-specific Git worktrees on the Windows `D:` drive. The main checkout is `D:\code-work\aiops-flyte2`; create future task worktrees under `D:\code-work\codex-worktree-storage\aiops-flyte2\<task-slug>` on branches named `codex/<task-slug>` and open that exact directory in Codex.
+- At the start of a task, resolve the active checkout with `git rev-parse --show-toplevel` and run all repository commands from that checkout. Never switch from a task worktree back to the main checkout just because an example uses the main path.
+- Use Windows PowerShell and Windows Git for Codex file operations, Git operations, `pnpm`, Next.js, and Playwright. Frontend dependency installation, tests, local builds, and browser verification must run against a `D:`-drive checkout.
+- Do not run `pnpm install`, Next.js builds, or commands that create `node_modules` or `.next` from a checkout under `C:\Users\86176\.codex\worktrees`. Relocate or reopen the task as a `D:`-drive worktree first.
+- Do not run `pnpm` from WSL against the same checkout and never share or alternate one `node_modules` tree between Windows and WSL.
+- Use WSL distribution `Ubuntu-22.04` for Go commands, Bash scripts, and local deployment orchestration. Convert the active Windows checkout with `wslpath`; examples use `/mnt/d/code-work/aiops-flyte2` for the main checkout.
+- Final production frontend and backend images are built only on the remote `aione-flyte2` Linux/containerd environment through the existing deployment scripts. A Windows `pnpm run build:prod` is local verification, not the production image build.
+
 ## Development Rules
 
 - Prefer existing repository patterns over new abstractions.
@@ -42,42 +52,41 @@ Active branch:                           main
 - `flyte_console/public/monaco/` is generated during frontend production builds and must not be committed.
 - `flyte_console/server.js` at source root is not needed. The runtime `server.js` comes from Next standalone output copied from `.next/standalone`.
 - The custom Flyte plugin code belongs under `flyteplugins/aione/`.
-- Use root-level commands from `D:\flyte-work` unless a command explicitly changes directory.
+- Use the current `git rev-parse --show-toplevel` result for root-level commands unless a command explicitly changes directory.
 
 ## Local Verification
 
-Backend/plugin checks:
+Backend/plugin checks use WSL from the active Windows checkout:
 
 ```powershell
-cd D:\flyte-work
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+$wslRepoRoot = (wsl.exe -d Ubuntu-22.04 -- wslpath -a $repoRoot).Trim()
 
-go test ./executor/pkg/plugin/k8s -count=1
-go test ./flyteplugins/aione/sshworkspace -count=1
-bash deploy/tests/test_flyte_api_scripts.sh
-bash deploy/tests/test_deploy_aiops_flyte.sh
-bash deploy/tests/test_deploy_flyte_console_source.sh
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && go test ./executor/pkg/plugin/k8s -count=1"
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && go test ./flyteplugins/aione/sshworkspace -count=1"
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash deploy/tests/test_flyte_api_scripts.sh"
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash deploy/tests/test_deploy_aiops_flyte.sh"
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash deploy/tests/test_deploy_flyte_console_source.sh"
 ```
 
-Frontend production build:
+Frontend local verification uses Windows PowerShell from a `D:`-drive checkout:
 
 ```powershell
-cd D:\flyte-work\flyte_console
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+if ($repoRoot -notmatch '^[dD]:[/\\]') { throw 'Frontend verification requires a D: drive checkout.' }
+Set-Location (Join-Path $repoRoot 'flyte_console')
+
 pnpm install --no-frozen-lockfile
 pnpm run build:prod
 ```
 
-`pnpm run build:prod` runs Next production build and then regenerates Monaco assets:
-
-```bash
-rm -rf public/monaco
-mkdir -p public/monaco
-cp -R node_modules/monaco-editor/min/vs public/monaco/vs
-```
+`pnpm run build:prod` runs the Next production build and then regenerates Monaco assets through the cross-platform `node ./scripts/copyMonacoAssets.mjs` script. It validates the frontend locally but does not replace the remote Linux/containerd production image build.
 
 Before committing:
 
 ```powershell
-cd D:\flyte-work
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+Set-Location $repoRoot
 git status --short
 git diff --check
 ```
@@ -97,9 +106,10 @@ git log -1 --oneline
 
 For full backend deployment, including k3s, Helm dependencies, local images, PostgreSQL, RustFS, and Flyte binary:
 
-```bash
-cd /mnt/d/flyte-work
-bash scripts/deploy-aiops-flyte.sh
+```powershell
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+$wslRepoRoot = (wsl.exe -d Ubuntu-22.04 -- wslpath -a $repoRoot).Trim()
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash scripts/deploy-aiops-flyte.sh"
 ```
 
 If the remote server needs a proxy for downloads:
@@ -168,12 +178,13 @@ curl -I http://172.19.66.218:30080/v2/projects
 API script checks from the local workspace:
 
 ```powershell
-cd D:\flyte-work
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+$wslRepoRoot = (wsl.exe -d Ubuntu-22.04 -- wslpath -a $repoRoot).Trim()
 
-bash deploy/tests/start_ml_task.sh
-bash deploy/tests/get_run_status.sh /flytesnacks/development/<run-id>
-bash deploy/tests/start_ssh_workspace.sh
-bash deploy/tests/get_ssh_workspace_connection.sh /flytesnacks/development/<run-id>
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash deploy/tests/start_ml_task.sh"
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash deploy/tests/get_run_status.sh /flytesnacks/development/<run-id>"
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash deploy/tests/start_ssh_workspace.sh"
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash deploy/tests/get_ssh_workspace_connection.sh /flytesnacks/development/<run-id>"
 ```
 
 ## Frontend Build And Deployment
@@ -194,11 +205,12 @@ docker.fzyun.io/library/node:23.11.1-alpine3.22
 
 The Dockerfile builds from source, runs `pnpm run build:prod`, copies `.next/standalone`, `.next/static`, generated `public`, and `proxy-server.js`, then serves through `node proxy-server.js` on port `8080`.
 
-Deploy the source-built frontend from the local workspace after committing and pushing:
+Deploy the source-built frontend from WSL after committing and pushing. The script coordinates the deployment, while the final image build occurs on the remote Linux/containerd environment:
 
-```bash
-cd /mnt/d/flyte-work
-bash scripts/deploy-flyte-console-source.sh
+```powershell
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+$wslRepoRoot = (wsl.exe -d Ubuntu-22.04 -- wslpath -a $repoRoot).Trim()
+wsl.exe -d Ubuntu-22.04 -- bash -lc "cd '$wslRepoRoot' && bash scripts/deploy-flyte-console-source.sh"
 ```
 
 Create or update the frontend Kubernetes resources:
@@ -239,13 +251,16 @@ HTTP/1.1 200 OK
 Use Playwright CLI for visual checks. Save screenshots under `output/playwright/`; that directory is ignored.
 
 ```powershell
-cd D:\flyte-work
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+if ($repoRoot -notmatch '^[dD]:[/\\]') { throw 'Browser verification requires a D: drive checkout.' }
+Set-Location $repoRoot
+$screenshot = Join-Path $repoRoot 'output\playwright\flyte-console-projects.png'
 
 npx --yes --package @playwright/cli playwright-cli -s=flyte-console-verify open http://172.19.66.218:30081/v2/projects
 npx --yes --package @playwright/cli playwright-cli -s=flyte-console-verify snapshot
 npx --yes --package @playwright/cli playwright-cli -s=flyte-console-verify console error
 npx --yes --package @playwright/cli playwright-cli -s=flyte-console-verify requests
-npx --yes --package @playwright/cli playwright-cli -s=flyte-console-verify screenshot --filename D:\flyte-work\output\playwright\flyte-console-projects.png --full-page
+npx --yes --package @playwright/cli playwright-cli -s=flyte-console-verify screenshot --filename $screenshot --full-page
 npx --yes --package @playwright/cli playwright-cli -s=flyte-console-verify close
 ```
 

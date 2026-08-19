@@ -4,6 +4,15 @@
 `../AGENTS.md`。根目录指南仍然是部署、分支、提交和远端操作的最高优先级说明；
 本文件只约束 Console 内的 Next.js 代码、对外 API route、响应结构和 smoke 测试写法。
 
+## 开发环境
+
+- Console 的 Codex、Git、`pnpm`、Next.js 和 Playwright 操作只在 Windows PowerShell 中执行，并且当前 Git 工作树必须位于 `D:` 盘。
+- 主检出目录是 `D:\code-work\aiops-flyte2`。任务工作树放在 `D:\code-work\codex-worktree-storage\aiops-flyte2\<task-slug>`，分支使用 `codex/<task-slug>`；命令始终以当前 `git rev-parse --show-toplevel` 为准。
+- 禁止在 `C:\Users\86176\.codex\worktrees` 下运行 `pnpm install`、测试、Next.js 构建或生成 `node_modules`、`.next`。需要构建时，先在 D 盘创建或打开任务工作树。
+- 不要在 WSL 中对同一检出目录运行 `pnpm`，也不要让 Windows 与 WSL 共享或交替生成同一份 `node_modules`。
+- Windows 上的 `pnpm run build:prod` 只用于本地验证。最终生产镜像必须使用 `flyte_console/Dockerfile`，并由现有部署脚本在远端 `aione-flyte2` Linux/containerd 环境构建。
+- Go、Bash 和部署规则由仓库根目录 `../AGENTS.md` 约束，不要在本指南中改写为 Windows 前端命令。
+
 ## 目录边界
 
 - Next.js App Router 的 HTTP 入口只放在 `src/app/api/**/route.ts`。
@@ -145,7 +154,9 @@ return errorEnvelope(statusError("id is required", 400));
 常用命令：
 
 ```powershell
-cd D:\flyte-work\flyte_console
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+if ($repoRoot -notmatch '^[dD]:[/\\]') { throw 'Flyte Console verification requires a D: drive checkout.' }
+Set-Location (Join-Path $repoRoot 'flyte_console')
 
 pnpm exec vitest run "src/app/api/aione/[type]/[id]/status/route.test.ts"
 pnpm exec vitest run "src/app/api/aione/[type]/run/route.test.ts" "src/app/api/aione/[type]/[id]/status/route.test.ts" "src/app/api/aione/[type]/[id]/stop/route.test.ts" "src/app/api/aione/[type]/[id]/clear/route.test.ts"
@@ -156,7 +167,8 @@ pnpm run build:prod
 提交前从仓库根目录检查：
 
 ```powershell
-cd D:\flyte-work
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+Set-Location $repoRoot
 git diff --check
 git status --short
 ```
@@ -177,8 +189,9 @@ smoke 脚本约定：
 状态接口 smoke 示例：
 
 ```powershell
-cd D:\flyte-work
-C:\Users\admin\AppData\Local\Programs\Python\Python312\python.exe D:\flyte-work\tests_smoke\instance_status_smoke.py
+$repoRoot = (git rev-parse --show-toplevel).Trim()
+Set-Location $repoRoot
+python .\tests_smoke\instance_status_smoke.py
 ```
 
 预期成功响应结构：
