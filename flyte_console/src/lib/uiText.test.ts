@@ -11,7 +11,6 @@ describe('Chinese UI text helpers', () => {
     expect(getUiText('projects')).toBe('项目')
     expect(getUiText('runs')).toBe('运行')
     expect(getUiText('triggers')).toBe('触发器')
-    expect(getUiText('apiKeys')).toBe('大模型')
     expect(getUiText('searchRuns')).toBe('搜索运行')
   })
 

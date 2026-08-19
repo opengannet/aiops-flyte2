@@ -11,7 +11,6 @@ import {
   CircleStackIcon,
   ComputerDesktopIcon,
   FolderOpenIcon,
-  KeyIcon,
   ShareIcon,
 } from "@heroicons/react/24/outline";
 import { AppsIcon } from "../icons/AppsIcon";
@@ -103,14 +102,6 @@ export const TasksLink: NavLinkType = {
   type: "link",
 };
 
-export const ApiKeysLink: NavLinkType = {
-  displayText: getUiText("apiKeys"),
-  makeHref: ({ project, domain }) =>
-    `/domain/${domain}/project/${project}/api-keys`,
-  icon: <KeyIcon className="size-4 min-w-4" />,
-  type: "link",
-};
-
 export const TriggersLink: NavLinkType = {
   displayText: getUiText("triggers"),
   makeHref: ({ project, domain }) =>
@@ -137,7 +128,6 @@ export const useDefaultItems = () => {
     CloudStorageLink,
     TriggersLink,
     TasksLink,
-    ApiKeysLink,
     AppsLink,
   ].filter(Boolean) as NavLinkType[];
 };

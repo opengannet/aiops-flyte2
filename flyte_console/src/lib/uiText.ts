@@ -4,7 +4,6 @@
 
 export const uiText = {
   actions: "操作",
-  apiKeys: "大模型",
   addTrigger: "添加触发器",
   apps: "模型部署",
   associatedTask: "关联任务",
