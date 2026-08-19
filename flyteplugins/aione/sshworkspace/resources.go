@@ -586,6 +586,7 @@ if command -v usermod >/dev/null 2>&1 && [ -x /bin/bash ]; then
 fi
 mkdir -p /home/%[1]s/.ssh /home/%[2]s/.local/share/code-server /run/sshd /etc/ssh/sshd_config.d
 cp /flyte-ssh/authorized_keys /home/%[1]s/.ssh/authorized_keys
+chown %[1]s:%[1]s /home/%[1]s/.ssh /home/%[1]s/.ssh/authorized_keys
 chmod 700 /home/%[1]s/.ssh
 chmod 600 /home/%[1]s/.ssh/authorized_keys
 printf 'PasswordAuthentication no\nPermitRootLogin no\nPubkeyAuthentication yes\n' > /etc/ssh/sshd_config.d/flyte-workspace.conf

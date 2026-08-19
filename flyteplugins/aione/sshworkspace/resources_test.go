@@ -175,6 +175,7 @@ func TestBuildResourcesCreatesSSHWorkspaceObjects(t *testing.T) {
 	assert.NotContains(t, container.Args[0], "--auth none /workspace")
 	assert.NotContains(t, container.Args[0], "mkdir -p /workspace")
 	assert.NotContains(t, container.Args[0], "su - dev -c")
+	assert.Contains(t, container.Args[0], "chown dev:dev /home/dev/.ssh /home/dev/.ssh/authorized_keys")
 	assert.NotContains(t, container.Args[0], "chown -R dev:dev /home/dev")
 	assert.NotContains(t, container.Args[0], "chown -R flytekit:flytekit /home/flytekit")
 	assert.NotContains(t, container.Args[0], "chown -R flytekit:dev /workspace")
