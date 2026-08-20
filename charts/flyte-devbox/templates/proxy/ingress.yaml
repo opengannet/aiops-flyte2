@@ -87,7 +87,8 @@ metadata:
     traefik.ingress.kubernetes.io/router.priority: "1000"
 spec:
   rules:
-    - http:
+    - host: {{ required "proxy.consoleRootRedirectHost must be set to prevent a hostless high-priority root route" .Values.proxy.consoleRootRedirectHost | quote }}
+      http:
         paths:
           # Exact, so only the bare root redirects
           - path: /

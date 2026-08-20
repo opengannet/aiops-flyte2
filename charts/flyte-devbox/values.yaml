@@ -202,6 +202,11 @@ postgresql:
     image:
       tag: sandbox
       pullPolicy: Never
+proxy:
+  # Restrict the high-priority bare-root console redirect to the Flyte hostname.
+  # This must stay non-empty so the route cannot intercept root requests for
+  # unrelated applications sharing the same Traefik instance.
+  consoleRootRedirectHost: flyte2.ops.fzyun.io
 sandbox:
   # dev Routes requests to an instance of Flyte running locally on a developer's
   # development environment. This is only usable if the flyte-binary chart is disabled.

@@ -111,6 +111,7 @@ A Helm chart for the Flyte local demo cluster
 | postgresql.volumePermissions.enabled | bool | `true` |  |
 | postgresql.volumePermissions.image.pullPolicy | string | `"Never"` |  |
 | postgresql.volumePermissions.image.tag | string | `"sandbox"` |  |
+| proxy.consoleRootRedirectHost | string | `"flyte2.ops.fzyun.io"` | Hostname allowed to use the high-priority bare-root console redirect. |
 | rustfs.enabled | bool | `true` |  |
 | rustfs.fullnameOverride | string | `"rustfs"` |  |
 | rustfs.image.repository | string | `"rustfs/rustfs"` |  |
